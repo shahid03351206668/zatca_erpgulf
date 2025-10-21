@@ -1203,8 +1203,6 @@ def compliance_api_call(
             data=payload,
             timeout=300,
         )
-        # frappe.throw(response.status_code)
-        # frappe.throw(_(response.text))
         if response.status_code != 200:
             frappe.throw(_(f"Error in compliance: {response.text}"))
         if response.status_code != 202:
