@@ -9,42 +9,54 @@ def execute(filters=None):
     # -----------------------------
     sales_totals = get_sales_vat_totals_sql(filters)
 
-    data.append({"category": "<b>Sales VAT</b>", "amount": None, "adjustment": None, "vat": None})
+    data.append({"category": "<b>Sales VAT</b>", "amount": None, "adjustment": None, "vat": None, "amount_without_vat": None, "adjustment_without_vat": None})
 
     data += [
         {
             "category": "Standard rated sales",
+            "amount_without_vat": sales_totals["Standard"]["amount_without_vat"],
             "amount": sales_totals["Standard"]["amount"],
+            "adjustment_without_vat": sales_totals["Standard"]["adjustment_without_vat"],
             "adjustment": sales_totals["Standard"]["adjustment"],
             "vat": sales_totals["Standard"]["vat"],
         },
         {
             "category": "Private Healthcare / Private Education sales to citizens",
+            "amount_without_vat": sales_totals["HealthcareEdu"]["amount_without_vat"],
             "amount": sales_totals["HealthcareEdu"]["amount"],
+            "adjustment_without_vat": sales_totals["HealthcareEdu"]["adjustment_without_vat"],
             "adjustment": sales_totals["HealthcareEdu"]["adjustment"],
             "vat": sales_totals["HealthcareEdu"]["vat"],
         },
         {
             "category": "Zero rated domestic sales",
+            "amount_without_vat": sales_totals["Zero Rated"]["amount_without_vat"],
             "amount": sales_totals["Zero Rated"]["amount"],
+            "adjustment_without_vat": sales_totals["Zero Rated"]["adjustment_without_vat"],
             "adjustment": sales_totals["Zero Rated"]["adjustment"],
             "vat": 0,
         },
         {
             "category": "Exports",
+            "amount_without_vat": sales_totals["Exports"]["amount_without_vat"],
             "amount": sales_totals["Exports"]["amount"],
+            "adjustment_without_vat": sales_totals["Exports"]["adjustment_without_vat"],
             "adjustment": sales_totals["Exports"]["adjustment"],
             "vat": sales_totals["Exports"]["vat"],
         },
         {
             "category": "Exempt sales",
+            "amount_without_vat": sales_totals["Exempt"]["amount_without_vat"],
             "amount": sales_totals["Exempt"]["amount"],
+            "adjustment_without_vat": sales_totals["Exempt"]["adjustment_without_vat"],
             "adjustment": sales_totals["Exempt"]["adjustment"],
             "vat": 0,
         },
         {
             "category": "<b>Total Sales</b>",
+            "amount_without_vat": sum(v["amount_without_vat"] for v in sales_totals.values()),
             "amount": sum(v["amount"] for v in sales_totals.values()),
+            "adjustment_without_vat": sum(v["adjustment_without_vat"] for v in sales_totals.values()),
             "adjustment": sum(v["adjustment"] for v in sales_totals.values()),
             "vat": sum(v["vat"] for v in sales_totals.values()),
         },
@@ -57,37 +69,47 @@ def execute(filters=None):
     # -----------------------------
     purchase_totals = get_purchase_vat_totals_sql(filters)
 
-    data.append({"category": "", "amount": None, "adjustment": None, "vat": None})
-    data.append({"category": "<b>Purchase VAT</b>", "amount": None, "adjustment": None, "vat": None})
+    data.append({"category": "", "amount": None, "adjustment": None, "vat": None, "amount_without_vat": None, "adjustment_without_vat": None})
+    data.append({"category": "<b>Purchase VAT</b>", "amount": None, "adjustment": None, "vat": None, "amount_without_vat": None, "adjustment_without_vat": None})
 
     data += [
         {
             "category": "Standard rated domestic purchases",
+            "amount_without_vat": purchase_totals["Standard"]["amount_without_vat"],
             "amount": purchase_totals["Standard"]["amount"],
+            "adjustment_without_vat": purchase_totals["Standard"]["adjustment_without_vat"],
             "adjustment": purchase_totals["Standard"]["adjustment"],
             "vat": purchase_totals["Standard"]["vat"],
         },
         {
             "category": "Imports subject to VAT paid at customs",
+            "amount_without_vat": purchase_totals["ImportsCustoms"]["amount_without_vat"],
             "amount": purchase_totals["ImportsCustoms"]["amount"],
+            "adjustment_without_vat": purchase_totals["ImportsCustoms"]["adjustment_without_vat"],
             "adjustment": purchase_totals["ImportsCustoms"]["adjustment"],
             "vat": purchase_totals["ImportsCustoms"]["vat"],
         },
         {
             "category": "Zero rated purchases",
+            "amount_without_vat": purchase_totals["Zero Rated"]["amount_without_vat"],
             "amount": purchase_totals["Zero Rated"]["amount"],
+            "adjustment_without_vat": purchase_totals["Zero Rated"]["adjustment_without_vat"],
             "adjustment": purchase_totals["Zero Rated"]["adjustment"],
             "vat": 0,
         },
         {
             "category": "Exempt purchases",
+            "amount_without_vat": purchase_totals["Exempt"]["amount_without_vat"],
             "amount": purchase_totals["Exempt"]["amount"],
+            "adjustment_without_vat": purchase_totals["Exempt"]["adjustment_without_vat"],
             "adjustment": purchase_totals["Exempt"]["adjustment"],
             "vat": 0,
         },
         {
             "category": "<b>Total purchases</b>",
+            "amount_without_vat": sum(v["amount_without_vat"] for v in purchase_totals.values()),
             "amount": sum(v["amount"] for v in purchase_totals.values()),
+            "adjustment_without_vat": sum(v["adjustment_without_vat"] for v in purchase_totals.values()),
             "adjustment": sum(v["adjustment"] for v in purchase_totals.values()),
             "vat": sum(v["vat"] for v in purchase_totals.values()),
         },
@@ -128,11 +150,11 @@ def build_filters_sql(filters, table_alias="si"):
 # -----------------------------
 def get_sales_vat_totals_sql(filters):
     totals = {
-        "Standard": {"amount": 0, "adjustment": 0, "vat": 0},
-        "HealthcareEdu": {"amount": 0, "adjustment": 0, "vat": 0},
-        "Zero Rated": {"amount": 0, "adjustment": 0, "vat": 0},
-        "Exports": {"amount": 0, "adjustment": 0, "vat": 0},
-        "Exempt": {"amount": 0, "adjustment": 0, "vat": 0},
+        "Standard": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
+        "HealthcareEdu": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
+        "Zero Rated": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
+        "Exports": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
+        "Exempt": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
     }
 
     where_clause = build_filters_sql(filters)
@@ -143,6 +165,7 @@ def get_sales_vat_totals_sql(filters):
             si.name AS invoice,
             si.is_return AS is_return,
             si.grand_total AS grand_total,
+            si.net_total AS net_total,
             si.total_taxes_and_charges AS total_taxes_and_charges,
             si.custom_zatca_tax_category AS invoice_zatca_cat,
             si.custom_exemption_reason_code AS invoice_exemption_code,
@@ -171,6 +194,7 @@ def get_sales_vat_totals_sql(filters):
             invoices[inv] = {
                 "is_return": bool(r.get("is_return")),
                 "grand_total": r.get("grand_total") or 0,
+                "net_total": r.get("net_total") or 0,
                 "total_taxes_and_charges": r.get("total_taxes_and_charges") or 0,
                 "custom_zatca_tax_category": r.get("invoice_zatca_cat"),
                 "custom_exemption_reason_code": r.get("invoice_exemption_code"),
@@ -191,7 +215,8 @@ def get_sales_vat_totals_sql(filters):
     # Now apply your original ORM logic per-invoice
     for inv_doc in invoices.values():
         is_return = 1 if inv_doc["is_return"] else 0
-        key = "adjustment" if is_return else "amount"
+        key_with_vat = "adjustment" if is_return else "amount"
+        key_without_vat = "adjustment_without_vat" if is_return else "amount_without_vat"
 
         has_item_template = any(item.get("item_tax_template") for item in inv_doc["items"])
 
@@ -200,47 +225,56 @@ def get_sales_vat_totals_sql(filters):
 
         # Standard Rated
         if inv_doc.get("custom_zatca_tax_category") == "Standard":
-            totals["Standard"][key] += inv_doc["grand_total"]
+            totals["Standard"][key_with_vat] += inv_doc["grand_total"]
+            totals["Standard"][key_without_vat] += inv_doc["net_total"]
             if not has_item_template:
                 totals["Standard"]["vat"] += inv_doc["total_taxes_and_charges"]
         else:
             for item in inv_doc["items"]:
                 if item.get("template_category") == "Standard":
-                    totals["Standard"][key] += item.get("amount") or 0
+                    totals["Standard"][key_with_vat] += item.get("amount") or 0
+                    totals["Standard"][key_without_vat] += item.get("net_amount") or 0
                     totals["Standard"]["vat"] += calculate_item_vat(item)
 
         # Zero Rated
         if inv_doc.get("custom_zatca_tax_category") == "Zero Rated":
-            totals["Zero Rated"][key] += inv_doc["grand_total"]
+            totals["Zero Rated"][key_with_vat] += inv_doc["grand_total"]
+            totals["Zero Rated"][key_without_vat] += inv_doc["net_total"]
         else:
             for item in inv_doc["items"]:
                 if item.get("template_category") == "Zero Rated":
-                    totals["Zero Rated"][key] += item.get("amount") or 0
+                    totals["Zero Rated"][key_with_vat] += item.get("amount") or 0
+                    totals["Zero Rated"][key_without_vat] += item.get("net_amount") or 0
 
         # Exports
         if int(inv_doc.get("custom_zatca_export_invoice") or 0) == 1:
-            totals["Exports"][key] += inv_doc["grand_total"]
+            totals["Exports"][key_with_vat] += inv_doc["grand_total"]
+            totals["Exports"][key_without_vat] += inv_doc["net_total"]
             if not has_item_template:
                 totals["Exports"]["vat"] += inv_doc["total_taxes_and_charges"]
 
         # Healthcare / Education (exemption codes)
         if inv_doc.get("custom_exemption_reason_code") in ["VATEX-SA-HEA", "VATEX-SA-EDU"]:
-            totals["HealthcareEdu"][key] += inv_doc["grand_total"]
+            totals["HealthcareEdu"][key_with_vat] += inv_doc["grand_total"]
+            totals["HealthcareEdu"][key_without_vat] += inv_doc["net_total"]
             if not has_item_template:
                 totals["HealthcareEdu"]["vat"] += inv_doc["total_taxes_and_charges"]
         else:
             for item in inv_doc["items"]:
                 if item.get("template_exemption_code") in ["VATEX-SA-HEA", "VATEX-SA-EDU"]:
-                    totals["HealthcareEdu"][key] += item.get("amount") or 0
+                    totals["HealthcareEdu"][key_with_vat] += item.get("amount") or 0
+                    totals["HealthcareEdu"][key_without_vat] += item.get("net_amount") or 0
                     totals["HealthcareEdu"]["vat"] += calculate_item_vat(item)
 
         # Exempt
         if inv_doc.get("custom_zatca_tax_category") == "Exempted":
-            totals["Exempt"][key] += inv_doc["grand_total"]
+            totals["Exempt"][key_with_vat] += inv_doc["grand_total"]
+            totals["Exempt"][key_without_vat] += inv_doc["net_total"]
         else:
             for item in inv_doc["items"]:
                 if item.get("template_category") == "Exempted":
-                    totals["Exempt"][key] += item.get("amount") or 0
+                    totals["Exempt"][key_with_vat] += item.get("amount") or 0
+                    totals["Exempt"][key_without_vat] += item.get("net_amount") or 0
 
     return totals
 
@@ -250,10 +284,10 @@ def get_sales_vat_totals_sql(filters):
 # -----------------------------
 def get_purchase_vat_totals_sql(filters):
     totals = {
-        "Standard": {"amount": 0, "adjustment": 0, "vat": 0},
-        "ImportsCustoms": {"amount": 0, "adjustment": 0, "vat": 0},
-        "Zero Rated": {"amount": 0, "adjustment": 0, "vat": 0},
-        "Exempt": {"amount": 0, "adjustment": 0, "vat": 0},
+        "Standard": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
+        "ImportsCustoms": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
+        "Zero Rated": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
+        "Exempt": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
     }
 
     where_clause = build_filters_sql(filters, table_alias="pi")
@@ -263,6 +297,7 @@ def get_purchase_vat_totals_sql(filters):
             pi.name AS invoice,
             pi.is_return AS is_return,
             pi.grand_total AS grand_total,
+            pi.net_total AS net_total,
             pi.total_taxes_and_charges AS total_taxes_and_charges,
             pi.custom_zatca_tax_category,
             pi.custom_exemption_reason_code,
@@ -274,20 +309,25 @@ def get_purchase_vat_totals_sql(filters):
     rows = frappe.db.sql(query, filters, as_dict=True)
     for r in rows:
         is_return = 1 if r.get("is_return") else 0
-        key = "adjustment" if is_return else "amount"
+        key_with_vat = "adjustment" if is_return else "amount"
+        key_without_vat = "adjustment_without_vat" if is_return else "amount_without_vat"
 
         if r.get("custom_zatca_tax_category") == "Standard":
-            totals["Standard"][key] += r.get("grand_total") or 0
+            totals["Standard"][key_with_vat] += r.get("grand_total") or 0
+            totals["Standard"][key_without_vat] += r.get("net_total") or 0
             totals["Standard"]["vat"] += r.get("total_taxes_and_charges") or 0
 
         elif r.get("custom_zatca_tax_category") == "Zero Rated":
-            totals["Zero Rated"][key] += r.get("grand_total") or 0
+            totals["Zero Rated"][key_with_vat] += r.get("grand_total") or 0
+            totals["Zero Rated"][key_without_vat] += r.get("net_total") or 0
 
         elif r.get("custom_zatca_tax_category") == "Exempted":
-            totals["Exempt"][key] += r.get("grand_total") or 0
+            totals["Exempt"][key_with_vat] += r.get("grand_total") or 0
+            totals["Exempt"][key_without_vat] += r.get("net_total") or 0
 
         if int(r.get("custom_zatca_import_invoice") or 0) == 1:
-            totals["ImportsCustoms"][key] += r.get("grand_total") or 0
+            totals["ImportsCustoms"][key_with_vat] += r.get("grand_total") or 0
+            totals["ImportsCustoms"][key_without_vat] += r.get("net_total") or 0
             totals["ImportsCustoms"]["vat"] += r.get("total_taxes_and_charges") or 0
 
     return totals
@@ -299,7 +339,9 @@ def get_purchase_vat_totals_sql(filters):
 def get_columns():
     return [
         {"label": "Category", "fieldname": "category", "fieldtype": "Data", "width": 380, "options": "HTML"},
-        {"label": "Amount (SAR)", "fieldname": "amount", "fieldtype": "Currency", "width": 180},
-        {"label": "Adjustment (SAR)", "fieldname": "adjustment", "fieldtype": "Currency", "width": 180},
+        {"label": "Amount W/O VAT(SAR)", "fieldname": "amount_without_vat", "fieldtype": "Currency", "width": 180},
+        {"label": "Amount With VAT(SAR)", "fieldname": "amount", "fieldtype": "Currency", "width": 180},
+        {"label": "Adjustment W/O VAT (SAR)", "fieldname": "adjustment_without_vat", "fieldtype": "Currency", "width": 180},
+        {"label": "Adjustment With VAT(SAR)", "fieldname": "adjustment", "fieldtype": "Currency", "width": 180},
         {"label": "VAT Amount (SAR)", "fieldname": "vat", "fieldtype": "Currency", "width": 180},
     ]
