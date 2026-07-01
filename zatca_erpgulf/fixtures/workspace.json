@@ -1,5 +1,6 @@
 [
  {
+  "type": "Workspace",
   "charts": [
    {
     "chart_name": "Monthly Invoices Reported to ZATCA",
