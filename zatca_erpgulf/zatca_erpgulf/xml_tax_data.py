@@ -55,10 +55,13 @@ def get_tax_for_item(full_string, item):
     Extracts the tax amount and tax percentage for a specific item from a JSON-encoded string.
     """
     try:  # getting tax percentage and tax amount
-        data = json.loads(full_string)
-        tax_percentage = data.get(item, [0, 0])[0]
-        tax_amount = data.get(item, [0, 0])[1]
-        return tax_amount, tax_percentage
+        if full_string:
+            data = json.loads(full_string)
+            tax_percentage = data.get(item, [0, 0])[0]
+            tax_amount = data.get(item, [0, 0])[1]
+            return tax_amount, tax_percentage
+        else:
+            return 0, 0
     except json.JSONDecodeError as e:
         frappe.throw(_("JSON decoding error occurred in tax for item: " + str(e)))
         return None
