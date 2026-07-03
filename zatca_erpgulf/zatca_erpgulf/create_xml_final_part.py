@@ -10,6 +10,7 @@ from datetime import datetime
 from frappe.utils.data import get_time
 from decimal import Decimal, ROUND_HALF_UP
 import frappe
+import json
 from frappe import _
 from zatca_erpgulf.zatca_erpgulf.xml_tax_data import (
     get_tax_for_item,
@@ -233,7 +234,7 @@ def tax_data_with_template_nominal(invoice, sales_invoice_doc):
         )
         cbc_allowancetotalamount.set("currencyID", sales_invoice_doc.currency)
 
-        cbc_allowancetotalamount.text = str(round(abs(sales_invoice_doc.total), 2))
+        cbc_allowancetotalamount.text = "{:.2f}".format(round(abs(sales_invoice_doc.total), 2))
 
         cbc_payableamount = ET.SubElement(cac_legalmonetarytotal, "cbc:PayableAmount")
         cbc_payableamount.set("currencyID", sales_invoice_doc.currency)
@@ -515,13 +516,13 @@ def tax_data_nominal(invoice, sales_invoice_doc):
         )
         cbc_allowancetotalamount.set("currencyID", sales_invoice_doc.currency)
         if sales_invoice_doc.taxes[0].included_in_print_rate == 0:
-            cbc_allowancetotalamount.text = str(round(abs(sales_invoice_doc.total), 2))
+            cbc_allowancetotalamount.text = "{:.2f}".format(round(abs(sales_invoice_doc.total), 2))
         else:
 
             if difference == 0.01:
-                cbc_allowancetotalamount.text = str(total_line_extension)
+                cbc_allowancetotalamount.text = "{:.2f}".format(round(abs(total_line_extension), 2))
             else:
-                cbc_allowancetotalamount.text = str(
+                cbc_allowancetotalamount.text = "{:.2f}".format(
                     round(abs(sales_invoice_doc.discount_amount), 2)
                 )
 
@@ -577,16 +578,34 @@ def add_line_item_discount(cac_price, single_item, sales_invoice_doc):
         cbc_amount = ET.SubElement(
             cac_allowance_charge, "cbc:Amount", currencyID=sales_invoice_doc.currency
         )
-        cbc_amount.text = str(abs(single_item.discount_amount))
+        if sales_invoice_doc.taxes[0].included_in_print_rate == 1:
+            tax_rate = abs(float(sales_invoice_doc.taxes[0].rate or 0))
+            divisor = 1 + (tax_rate / 100.0)
+
+            cbc_amount.text = f"{round(abs(float(single_item.discount_amount or 0)) / divisor, 2):.2f}"
+        else:
+            cbc_amount.text = str(abs(single_item.discount_amount))
 
         cbc_base_amount = ET.SubElement(
             cac_allowance_charge,
             "cbc:BaseAmount",
             currencyID=sales_invoice_doc.currency,
         )
-        cbc_base_amount.text = str(
-            abs(single_item.rate) + abs(single_item.discount_amount)
-        )
+        # cbc_base_amount.text = str(
+        #     abs(single_item.rate) + abs(single_item.discount_amount)
+        # )
+        if sales_invoice_doc.taxes[0].included_in_print_rate == 1:
+            tax_rate = abs(float(sales_invoice_doc.taxes[0].rate or 0))
+            divisor = 1 + (tax_rate / 100.0)
+
+            gross_before_discount = (
+                abs(float(single_item.rate or 0))
+                + abs(float(single_item.discount_amount or 0))
+            )
+
+            cbc_base_amount.text = f"{round(gross_before_discount / divisor, 2):.2f}"
+        else:
+            cbc_base_amount.text = f"{abs(single_item.rate) + abs(single_item.discount_amount):.2f}"
 
         return cac_price
 
@@ -594,6 +613,19 @@ def add_line_item_discount(cac_price, single_item, sales_invoice_doc):
         frappe.throw(_(f"Error occurred while adding line item discount: {str(error)}"))
         return None
 
+def get_tax_wise_detail(sales_invoice_doc,single_item):
+    """getting item wise tax"""
+    if int(frappe.__version__.split(".", 1)[0]) == 16 and sales_invoice_doc.item_wise_tax_details:
+                tax_rate = float(f"{sales_invoice_doc.item_wise_tax_details[0].rate:.1f}")
+                tax_amount = sales_invoice_doc.item_wise_tax_details[0].amount
+
+                # build JSON exactly like v15
+                tax_json = json.dumps({
+                    single_item.item_code: [tax_rate, float(tax_amount)]
+                })
+    else:
+        tax_json = sales_invoice_doc.taxes[0].item_wise_tax_detail
+    return tax_json
 
 def item_data(invoice, sales_invoice_doc):
     """
@@ -602,8 +634,9 @@ def item_data(invoice, sales_invoice_doc):
     try:
         qty = "cbc:BaseQuantity"
         for single_item in sales_invoice_doc.items:
+            tax_json = get_tax_wise_detail(sales_invoice_doc,single_item)
             _item_tax_amount, item_tax_percentage = get_tax_for_item(
-                sales_invoice_doc.taxes[0].item_wise_tax_detail, single_item.item_code
+                tax_json , single_item.item_code
             )
             cac_invoiceline = ET.SubElement(invoice, "cac:InvoiceLine")
             cbc_id_10 = ET.SubElement(cac_invoiceline, "cbc:ID")
@@ -782,8 +815,9 @@ def item_data_advance_invoice(invoice, sales_invoice_doc):
 
         # Add regular item lines
         for single_item in sales_invoice_doc.items:
+            tax_json = get_tax_wise_detail(sales_invoice_doc,single_item)
             _item_tax_amount, item_tax_percentage = get_tax_for_item(
-                sales_invoice_doc.taxes[0].item_wise_tax_detail, single_item.item_code
+                tax_json , single_item.item_code
             )
 
             # === Invoice Line ===
@@ -1344,25 +1378,26 @@ def xml_structuring(invoice):
     try:
 
         tree = ET.ElementTree(invoice)
-        xml_file_path = frappe.local.site + "/private/files/xml_files.xml"
-        # Save the XML tree to a file
-        with open(xml_file_path, "wb") as file:
-            tree.write(file, encoding="utf-8", xml_declaration=True)
+        # xml_file_path = frappe.local.site + "/private/files/xml_files_{invoice_number}.xml"
+        # # Save the XML tree to a file
+        # with open(xml_file_path, "wb") as file:
+        #     tree.write(file, encoding="utf-8", xml_declaration=True)
 
-        # Read the XML file and format it
-        with open(xml_file_path, "r", encoding="utf-8") as file:
-            xml_string = file.read()
+        # # Read the XML file and format it
+        # with open(xml_file_path, "r", encoding="utf-8") as file:
+            # xml_string = file.read()
+        xml_string = ET.tostring(invoice, encoding="utf-8", method="xml")
 
         # Format the XML string to make it pretty
         xml_dom = minidom.parseString(xml_string)
         pretty_xml_string = xml_dom.toprettyxml(indent="  ")
 
         # Write the formatted XML to the final file
-        final_xml_path = frappe.local.site + "/private/files/finalzatcaxml.xml"
+        # final_xml_path = f"{frappe.local.site}/private/files/finalzatcaxml_{invoice_number}.xml"
 
-        with open(final_xml_path, "w", encoding="utf-8") as file:
-            file.write(pretty_xml_string)
-
+        # with open(final_xml_path, "w", encoding="utf-8") as file:
+        #     file.write(pretty_xml_string)
+        return pretty_xml_string
     except (FileNotFoundError, IOError):
         frappe.throw(
             _(
