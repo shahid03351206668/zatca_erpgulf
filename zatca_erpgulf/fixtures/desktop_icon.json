@@ -1,0 +1,25 @@
+[
+ {
+  "_doctype": null,
+  "_report": null,
+  "app": null,
+  "blocked": 0,
+  "category": null,
+  "color": null,
+  "custom": 0,
+  "description": null,
+  "docstatus": 0,
+  "doctype": "Desktop Icon",
+  "force_show": 0,
+  "hidden": 0,
+  "icon": null,
+  "label": "ZATCA ERPGULF",
+  "link": null,
+  "modified": "2026-02-09 15:24:00.373696",
+  "module_name": null,
+  "name": "ZATCA ERPGULF",
+  "reverse": 0,
+  "standard": 0,
+  "type": null
+ }
+]
