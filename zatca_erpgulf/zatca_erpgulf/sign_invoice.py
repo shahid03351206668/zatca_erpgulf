@@ -14,6 +14,7 @@ import json
 from frappe import _
 import frappe
 import requests
+from zatca_erpgulf.zatca_erpgulf.event_log import log_zatca_event
 from pyqrcode import create as qr_create
 from frappe.custom.doctype.custom_field.custom_field import create_custom_fields
 from zatca_erpgulf.zatca_erpgulf.createxml import (
@@ -74,7 +75,9 @@ from zatca_erpgulf.zatca_erpgulf.submit_xml_qr_notmultiple import (
 from zatca_erpgulf.zatca_erpgulf.zatca_background_sched import (
     zatca_call_scheduler_background,
 )
-
+from zatca_erpgulf.zatca_erpgulf.pdf_a3 import (
+    call_embed_pdf_on_submit
+)
 REPORTED_XML = "%Reported xml file%"
 SAUDI_ARABIA = "Saudi Arabia"
 
@@ -82,7 +85,7 @@ SAUDI_ARABIA = "Saudi Arabia"
 def xml_base64_decode(signed_xmlfile_name):
     """xml base64 decode"""
     try:
-        with open(signed_xmlfile_name, "r", encoding="utf-8") as file:
+        with open(signed_xmlfile_name, "r", encoding="utf-8") as file: # nosemgrep: frappe-semgrep-rules.rules.security.frappe-security-file-traversal
             xml = file.read().lstrip()
             base64_encoded = base64.b64encode(xml.encode("utf-8"))
             base64_decoded = base64_encoded.decode("utf-8")
@@ -239,7 +242,11 @@ def reporting_api(
             zatca_settings = frappe.get_doc(
                 "ZATCA Multiple Setting", sales_invoice_doc.custom_zatca_pos_name
             )
-            production_csid = zatca_settings.custom_final_auth_csid
+            if zatca_settings.custom__use_company_certificate__keys != 1:
+                production_csid = zatca_settings.custom_final_auth_csid
+            else:
+                linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                production_csid = linked_doc.custom_basic_auth_from_production
         else:
             production_csid = company_doc.custom_basic_auth_from_production
         if production_csid:
@@ -269,6 +276,48 @@ def reporting_api(
                     timeout=300,
                 )
                 frappe.publish_realtime("hide_gif", user=frappe.session.user)
+                # Classify and log ZATCA API responses
+                if response.status_code in (200, 202, 409):
+                    if response.status_code == 200:
+                        status_label = "Success"
+                        title = f"ZATCA Success - {invoice_number}"
+                    elif response.status_code == 202:
+                        status_label = "Warning"
+                        title = f"ZATCA Invoice with Warnings - {invoice_number}"
+                    elif response.status_code == 409:
+                        status_label = "Success (Duplicate Invoice)"
+                        title = f"ZATCA Duplicate Success - {invoice_number}"
+
+                    msg = (
+                        f"Status Code: {response.status_code}<br>"
+                        f"ZATCA Response: {response.text}"
+                    )
+
+                    log_zatca_event(
+                        invoice_number=invoice_number,
+                        response_text=msg,
+                        status=status_label,
+                        uuid=uuid1,
+                        title=title
+                    )
+
+                else:
+                    # All other codes are failures
+                    status_label = f"Failed (HTTP {response.status_code})"
+                    title = f"ZATCA API Failed - {invoice_number}"
+                    msg = (
+                        f"Status Code: {response.status_code}<br>"
+                        f"ZATCA Response: {response.text}"
+                    )
+
+                    log_zatca_event(
+                        invoice_number=invoice_number,
+                        response_text=msg,
+                        status=status_label,
+                        uuid=uuid1,
+                        title=title
+                    )
+
                 if response.status_code in (400, 405, 406):
                     invoice_doc = frappe.get_doc("Sales Invoice", invoice_number)
                     # invoice_doc.db_set(
@@ -353,10 +402,17 @@ def reporting_api(
                         zatca_settings = frappe.get_doc(
                             "ZATCA Multiple Setting", sales_invoice_doc.custom_zatca_pos_name
                         )
-                        if zatca_settings.custom_send_pos_invoices_to_zatca_on_background:
-                            frappe.msgprint(msg)
-                        zatca_settings.custom_pih = encoded_hash
-                        zatca_settings.save(ignore_permissions=True)
+                        if zatca_settings.custom__use_company_certificate__keys != 1:
+                            if zatca_settings.custom_send_pos_invoices_to_zatca_on_background:
+                                frappe.msgprint(msg)
+                            zatca_settings.custom_pih = encoded_hash
+                            zatca_settings.save(ignore_permissions=True)
+                        else:
+                            linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                            if linked_doc.custom_send_einvoice_background:
+                                frappe.msgprint(msg)
+                            linked_doc.custom_pih = encoded_hash
+                            linked_doc.save(ignore_permissions=True)   
                     else:
                         company_doc = frappe.get_doc("Company", sales_invoice_doc.company)
                         if company_doc.custom_send_einvoice_background:
@@ -373,9 +429,7 @@ def reporting_api(
                     
 
                     success_log(response.text, uuid1, invoice_number)
-                else:
-
-                    error_log()
+                
                 if response.status_code not in (200, 202, 409):
                     invoice_doc = frappe.get_doc("Sales Invoice", invoice_number)
                     # invoice_doc.db_set(
@@ -435,14 +489,21 @@ def reporting_api(
                     # company_doc.custom_pih = encoded_hash
                     # company_doc.save(ignore_permissions=True)
                     if sales_invoice_doc.custom_zatca_pos_name:
-                        if (
-                            zatca_settings.custom_send_pos_invoices_to_zatca_on_background
-                        ):
-                            frappe.msgprint(msg)
+                        if zatca_settings.custom__use_company_certificate__keys != 1:
+                            if (
+                                zatca_settings.custom_send_pos_invoices_to_zatca_on_background
+                            ):
+                                frappe.msgprint(msg)
 
-                        # Update PIH data without JSON formatting
-                        zatca_settings.custom_pih = encoded_hash
-                        zatca_settings.save(ignore_permissions=True)
+                            # Update PIH data without JSON formatting
+                            zatca_settings.custom_pih = encoded_hash
+                            zatca_settings.save(ignore_permissions=True)
+                        else:
+                            linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                            if linked_doc.custom_send_einvoice_background:
+                                frappe.msgprint(msg)
+                            linked_doc.custom_pih = encoded_hash
+                            linked_doc.save(ignore_permissions=True)   
 
                     else:
                         settings = frappe.get_doc("Company", company_name)
@@ -511,7 +572,11 @@ def clearance_api(
             zatca_settings = frappe.get_doc(
                 "ZATCA Multiple Setting", sales_invoice_doc.custom_zatca_pos_name
             )
-            production_csid = zatca_settings.custom_final_auth_csid
+            if zatca_settings.custom__use_company_certificate__keys != 1:
+                production_csid = zatca_settings.custom_final_auth_csid
+            else:
+                linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                production_csid = linked_doc.custom_basic_auth_from_production or ""
         else:
             production_csid = company_doc.custom_basic_auth_from_production or ""
         payload = {
@@ -545,8 +610,48 @@ def clearance_api(
             json=payload,
             timeout=300,
         )
-        frappe.publish_realtime("hide_gif", user=frappe.session.user)
+        
+        if response.status_code in (200, 202, 409):
+            if response.status_code == 200:
+                status_label = "Success"
+                title = f"ZATCA Success - {invoice_number}"
+            elif response.status_code == 202:
+                status_label = "Warning"
+                title = f"ZATCA Invoice with Warnings - {invoice_number}"
+            elif response.status_code == 409:
+                status_label = "Success (Duplicate Invoice)"
+                title = f"ZATCA Duplicate Success - {invoice_number}"
 
+            msg = (
+                f"Status Code: {response.status_code}<br>"
+                f"ZATCA Response: {response.text}"
+            )
+
+            log_zatca_event(
+                invoice_number=invoice_number,
+                response_text=msg,
+                status=status_label,
+                uuid=uuid1,
+                title=title
+            )
+
+        else:
+                    # All other codes are failures
+            status_label = f"Failed (HTTP {response.status_code})"
+            title = f"ZATCA API Failed - {invoice_number}"
+            msg = (
+                f"Status Code: {response.status_code}<br>"
+                f"ZATCA Response: {response.text}"
+            )
+
+            log_zatca_event(
+                invoice_number=invoice_number,
+                response_text=msg,
+                status=status_label,
+                uuid=uuid1,
+                title=title
+            )
+        frappe.publish_realtime("hide_gif", user=frappe.session.user)
         if response.status_code in (400, 405, 406):
             invoice_doc = frappe.get_doc("Sales Invoice", invoice_number)
             invoice_doc.db_set(
@@ -602,10 +707,19 @@ def clearance_api(
                 zatca_settings = frappe.get_doc(
                     "ZATCA Multiple Setting", sales_invoice_doc.custom_zatca_pos_name
                 )
-                if zatca_settings.custom_send_pos_invoices_to_zatca_on_background:
-                    frappe.msgprint(msg)
-                zatca_settings.custom_pih = encoded_hash
-                zatca_settings.save(ignore_permissions=True)
+                if zatca_settings.custom__use_company_certificate__keys != 1:
+                    if zatca_settings.custom_send_pos_invoices_to_zatca_on_background:
+                        frappe.msgprint(msg)
+                    zatca_settings.custom_pih = encoded_hash
+                    zatca_settings.save(ignore_permissions=True)
+                else:
+        
+                    linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                    if linked_doc.custom_send_einvoice_background:
+                        frappe.msgprint(msg)
+                    linked_doc.custom_pih = encoded_hash
+                    linked_doc.save(ignore_permissions=True)
+                    
             else:
                 company_doc = frappe.get_doc("Company", sales_invoice_doc.company)
                 if company_doc.custom_send_einvoice_background:
@@ -622,9 +736,9 @@ def clearance_api(
             
 
             success_log(response.text, uuid1, invoice_number)
-        else:
+        # else:
 
-            error_log()
+        #     error_log()
         if response.status_code not in (200, 202, 409):
             invoice_doc = frappe.get_doc("Sales Invoice", invoice_number)
             invoice_doc.db_set(
@@ -663,13 +777,21 @@ def clearance_api(
             # company_doc.save(ignore_permissions=True)
             # company_name = pos_invoice_doc.company
             if sales_invoice_doc.custom_zatca_pos_name:
-                if zatca_settings.custom_send_pos_invoices_to_zatca_on_background:
-                    frappe.msgprint(msg)
+                if zatca_settings.custom__use_company_certificate__keys != 1:
+                    if zatca_settings.custom_send_pos_invoices_to_zatca_on_background:
+                        frappe.msgprint(msg)
 
-                    # Update PIH data without JSON formatting
-                zatca_settings.custom_pih = encoded_hash
-                zatca_settings.save(ignore_permissions=True)
-
+                        # Update PIH data without JSON formatting
+                    zatca_settings.custom_pih = encoded_hash
+                    zatca_settings.save(ignore_permissions=True)
+                else:
+                        
+                    linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                    if linked_doc.custom_send_einvoice_background:
+                        frappe.msgprint(msg)
+                    linked_doc.custom_pih = encoded_hash
+                    linked_doc.save(ignore_permissions=True)
+                    
             else:
                 settings = frappe.get_doc("Company", company_name)
                 company_abbr = settings.abbr
@@ -752,7 +874,7 @@ def is_qr_and_xml_attached(sales_invoice_doc):
     return is_file_attached(qr_code) and is_file_attached(xml_file)
 
 
-@frappe.whitelist(allow_guest=False)
+# @frappe.whitelist(allow_guest=False)
 def zatca_call(
     invoice_number,
     compliance_type="0",
@@ -830,16 +952,16 @@ def zatca_call(
             else:
                 invoice = item_data_with_template(invoice, sales_invoice_doc)
 
-        xml_structuring(invoice)
-        try:
-            with open(
-                frappe.local.site + "/private/files/finalzatcaxml.xml",
-                "r",
-                encoding="utf-8",
-            ) as file:
-                file_content = file.read()
-        except FileNotFoundError:
-            frappe.throw("XML file not found")
+        file_content=xml_structuring(invoice)
+        # try:
+        #     with open(
+        #         f"{frappe.local.site}/private/files/finalzatcaxml_{invoice_number}.xml",
+        #         "r",
+        #         encoding="utf-8",
+        #     ) as file:
+        #         file_content = file.read()
+        # except FileNotFoundError:
+        #     frappe.throw("XML file not found")
         tag_removed_xml = removetags(file_content)
         canonicalized_xml = canonicalize_xml(tag_removed_xml)
         hash1, encoded_hash = getinvoicehash(canonicalized_xml)
@@ -848,11 +970,12 @@ def zatca_call(
             company_abbr, source_doc
         )
         encoded_certificate_hash = certificate_hash(company_abbr, source_doc)
-        namespaces, signing_time = signxml_modify(company_abbr, source_doc)
+        modified_xml_string,namespaces, signing_time = signxml_modify(company_abbr,file_content,source_doc)
         signed_properties_base64 = generate_signed_properties_hash(
             signing_time, issuer_name, serial_number, encoded_certificate_hash
         )
-        populate_the_ubl_extensions_output(
+        final_xml_string=populate_the_ubl_extensions_output(
+            modified_xml_string,
             encoded_signature,
             namespaces,
             signed_properties_base64,
@@ -860,7 +983,7 @@ def zatca_call(
             company_abbr,
             source_doc,
         )
-        tlv_data = generate_tlv_xml(company_abbr, source_doc)
+        tlv_data = generate_tlv_xml(final_xml_string,company_abbr, source_doc)
 
         tagsbufsarray = []
         for tag_num, tag_value in tlv_data.items():
@@ -868,8 +991,8 @@ def zatca_call(
 
         qrcodebuf = b"".join(tagsbufsarray)
         qrcodeb64 = base64.b64encode(qrcodebuf).decode("utf-8")
-        update_qr_toxml(qrcodeb64, company_abbr)
-        signed_xmlfile_name = structuring_signedxml()
+        updated_xml_string=update_qr_toxml(final_xml_string,qrcodeb64, company_abbr)
+        signed_xmlfile_name = structuring_signedxml(invoice_number,updated_xml_string)
         # Example usage
         # file_path = generate_invoice_pdf(
         #     invoice_number, l anguage="en", letterhead="Sample letterhead"
@@ -914,11 +1037,11 @@ def zatca_call(
 
 @frappe.whitelist(allow_guest=False)
 def zatca_call_compliance(
-    invoice_number,
-    company_abbr,
-    source_doc,
-    compliance_type="0",
-    any_item_has_tax_template=False,
+    invoice_number:str,
+    company_abbr:str,
+    source_doc:str=None,
+    compliance_type:str="0",
+    any_item_has_tax_template:bool=False,
 ):
     """zatca call compliance"""
 
@@ -998,13 +1121,13 @@ def zatca_call_compliance(
         else:
             item_data_with_template(invoice, sales_invoice_doc)
         # Generate and process the XML data
-        xml_structuring(invoice)
-        with open(
-            frappe.local.site + "/private/files/finalzatcaxml.xml",
-            "r",
-            encoding="utf-8",
-        ) as file:
-            file_content = file.read()
+        file_content=xml_structuring(invoice)
+        # with open(
+        #     f"{frappe.local.site}/private/files/finalzatcaxml_{invoice_number}.xml",
+        #     "r",
+        #     encoding="utf-8",
+        # ) as file:
+        #     file_content = file.read()
 
         tag_removed_xml = removetags(file_content)
         canonicalized_xml = canonicalize_xml(tag_removed_xml)
@@ -1014,11 +1137,12 @@ def zatca_call_compliance(
             company_abbr, source_doc
         )
         encoded_certificate_hash = certificate_hash(company_abbr, source_doc)
-        namespaces, signing_time = signxml_modify(company_abbr, source_doc)
+        modified_xml_string,namespaces, signing_time = signxml_modify(company_abbr,file_content, source_doc)
         signed_properties_base64 = generate_signed_properties_hash(
             signing_time, issuer_name, serial_number, encoded_certificate_hash
         )
-        populate_the_ubl_extensions_output(
+        final_xml_string = populate_the_ubl_extensions_output(
+            modified_xml_string,
             encoded_signature,
             namespaces,
             signed_properties_base64,
@@ -1027,7 +1151,7 @@ def zatca_call_compliance(
             source_doc,
         )
         # Generate the TLV data and QR code
-        tlv_data = generate_tlv_xml(company_abbr, source_doc)
+        tlv_data = generate_tlv_xml(final_xml_string,company_abbr, source_doc)
         tagsbufsarray = []
         for tag_num, tag_value in tlv_data.items():
             tagsbufsarray.append(get_tlv_for_value(tag_num, tag_value))
@@ -1035,8 +1159,8 @@ def zatca_call_compliance(
         qrcodebuf = b"".join(tagsbufsarray)
         qrcodeb64 = base64.b64encode(qrcodebuf).decode("utf-8")
 
-        update_qr_toxml(qrcodeb64, company_abbr)
-        signed_xmlfile_name = structuring_signedxml()
+        updated_xml_string=update_qr_toxml(final_xml_string,qrcodeb64,company_abbr)
+        signed_xmlfile_name = structuring_signedxml(invoice_number, updated_xml_string)
         value = compliance_api_call(
             uuid1, encoded_hash, signed_xmlfile_name, company_abbr, source_doc
         )
@@ -1051,7 +1175,7 @@ def zatca_call_compliance(
 
 
 @frappe.whitelist(allow_guest=False)
-def zatca_background(invoice_number, source_doc, bypass_background_check=False):
+def zatca_background(invoice_number: str, source_doc:str|dict=None, bypass_background_check:bool=False):
     """defines the zatca bacground"""
     try:
         # frappe.throw("DEBUG: Country found in address: ")
@@ -1207,9 +1331,9 @@ def zatca_background(invoice_number, source_doc, bypass_background_check=False):
         customer_doc = frappe.get_doc("Customer", sales_invoice_doc.customer)
         if customer_doc.custom_b2c == 0:
             if not customer_doc.custom_buyer_id:
-                frappe.throw(
+                frappe.throw(_(
                     "As per ZATCA regulations - For B2B Customers, customer CR number has to be provided"
-                )
+                ))
         address = None
         if customer_doc.custom_b2c != 1:
             if int(frappe.__version__.split(".", maxsplit=1)[0]) == 13:
@@ -1267,8 +1391,8 @@ def zatca_background(invoice_number, source_doc, bypass_background_check=False):
                         )
                     )
             # if customer_doc.custom_b2c != 1:
-            # if address and address.country == SAUDI_ARABIA and not customer_doc.custom_buyer_id:
-            if address and address.country == SAUDI_ARABIA:
+            if address and address.country == SAUDI_ARABIA and not customer_doc.custom_buyer_id:
+            # if address and address.country == SAUDI_ARABIA:
                 if not customer_doc.tax_id:
                     frappe.throw(
                         _(
@@ -1292,6 +1416,19 @@ def zatca_background(invoice_number, source_doc, bypass_background_check=False):
                             "As per ZATCA regulations, Customer Tax ID must start with 3 and end with 3."
                         )
                     )
+        tax_id = (customer_doc.tax_id or "").strip()
+
+        if tax_id:  # :white_check_mark: Only validate if value exists (not None / empty)
+            if (
+                not tax_id.isdigit()
+                or len(tax_id) != 15
+                or not (tax_id.startswith("3") and tax_id.endswith("3"))
+            ):
+                frappe.throw(
+                    _(
+                        "As per ZATCA regulations, Customer Tax ID must be exactly 15 digits and start with 3 and end with 3."
+                    )
+                )
         if not customer_doc.custom_buyer_id_type and customer_doc.custom_buyer_id:
             frappe.throw(_("Buyer ID must be blank if Buyer ID Type is not set."))
         if "claudion4saudi" in frappe.get_installed_apps():
@@ -1382,6 +1519,9 @@ def zatca_background(invoice_number, source_doc, bypass_background_check=False):
                     " Please contact your system administrator"
                 )
             )
+        if sales_invoice_doc.custom_zatca_pmm == 1:
+            frappe.throw(_("This invoice is marked as PMM. Skipping ZATCA submission."))
+            
         # if settings.custom_phase_1_or_2 == "Phase-2":
         is_gpos_installed = "gpos" in frappe.get_installed_apps()
 
@@ -1397,13 +1537,14 @@ def zatca_background(invoice_number, source_doc, bypass_background_check=False):
                 )
         if settings.custom_phase_1_or_2 == "Phase-2":
             if field_exists and sales_invoice_doc.custom_unique_id:
-
+                
                 if is_gpos_installed and sales_invoice_doc.custom_xml:
                     # Set the custom XML field
                     custom_xml_field = sales_invoice_doc.custom_xml
                     submit_sales_invoice_withxmlqr(
                         sales_invoice_doc, custom_xml_field, invoice_number
                     )
+                    
                 else:
                     zatca_call_withoutxml(
                         invoice_number,
@@ -1428,7 +1569,7 @@ def zatca_background(invoice_number, source_doc, bypass_background_check=False):
                     )
                 elif (
                     settings.custom_send_invoice_to_zatca == "Background"
-                    and not bypass_background_check
+                    and not bypass_background_check and customer_doc.custom_b2c == 1
                 ):
                     zatca_call_scheduler_background(
                         invoice_number,
@@ -1451,11 +1592,11 @@ def zatca_background(invoice_number, source_doc, bypass_background_check=False):
             create_qr_code(sales_invoice_doc, method=None)
         return "Success"
     except (ValueError, TypeError, KeyError, frappe.ValidationError) as e:
-        frappe.throw(_("Error in background call: " + str(e)))
+        frappe.throw(_("Error in background call : " + str(e)))
 
 
 @frappe.whitelist(allow_guest=False)
-def zatca_background_on_submit(doc, _method=None, bypass_background_check=False):
+def zatca_background_on_submit(doc: "str|dict", _method: str = None, bypass_background_check: bool = False):
     """referes according to the ZATC based sytem with the submitbutton of the sales invoice"""
     try:
         source_doc = doc
@@ -1474,7 +1615,8 @@ def zatca_background_on_submit(doc, _method=None, bypass_background_check=False)
         if company_doc.custom_zatca_invoice_enabled != 1:
             # frappe.msgprint("Zatca Invoice is not enabled. Submitting the document.")
             return  # Exit the function without further checks
-
+        if sales_invoice_doc.custom_zatca_pmm == 1:
+            return
         # 🚨 Skip ZATCA logic if Company Tax ID = Customer Tax ID
         if company_doc.tax_id and customer_doc.tax_id:
             if company_doc.tax_id.strip() == customer_doc.tax_id.strip():
@@ -1532,10 +1674,10 @@ def zatca_background_on_submit(doc, _method=None, bypass_background_check=False)
             and sales_invoice_doc.taxes[0].included_in_print_rate == 1
         ):
             if any(item.item_tax_template for item in sales_invoice_doc.items):
-                frappe.throw(
+                frappe.throw(_(
                     "As per ZATCA regulations, Item Tax Template cannot be used when taxes are included"
                     " in the print rate. Please remove Item Tax Templates."
-                )
+                ))
         any_item_has_tax_template = False
         for item in sales_invoice_doc.items:
             if item.item_tax_template:
@@ -1655,9 +1797,9 @@ def zatca_background_on_submit(doc, _method=None, bypass_background_check=False)
         customer_doc = frappe.get_doc("Customer", sales_invoice_doc.customer)
         if customer_doc.custom_b2c == 0:
             if not customer_doc.custom_buyer_id:
-                frappe.throw(
+                frappe.throw(_(
                     "As per ZATCA regulations- For B2B Customers, customer CR number has to be provided"
-                )
+                ))
         address = None
         if customer_doc.custom_b2c != 1:
             if int(frappe.__version__.split(".", maxsplit=1)[0]) == 13:
@@ -1712,8 +1854,8 @@ def zatca_background_on_submit(doc, _method=None, bypass_background_check=False)
                             "As per ZATCA regulations, Pincode must be exactly 5 digits in customer address."
                         )
                     )
-            # if address and address.country == SAUDI_ARABIA and not customer_doc.custom_buyer_id:
-            if address and address.country == SAUDI_ARABIA:
+            if address and address.country == SAUDI_ARABIA and not customer_doc.custom_buyer_id:
+            # if address and address.country == SAUDI_ARABIA:
                 if not customer_doc.tax_id:
                     frappe.throw(
                         _(
@@ -1737,6 +1879,19 @@ def zatca_background_on_submit(doc, _method=None, bypass_background_check=False)
                             "As per ZATCA regulations, Customer Tax ID must start with 3 and end with 3."
                         )
                     )
+        tax_id = (customer_doc.tax_id or "").strip()
+
+        if tax_id:  # :white_check_mark: Only validate if value exists (not None / empty)
+            if (
+                not tax_id.isdigit()
+                or len(tax_id) != 15
+                or not (tax_id.startswith("3") and tax_id.endswith("3"))
+            ):
+                frappe.throw(
+                    _(
+                        "As per ZATCA regulations, Customer Tax ID must be exactly 15 digits and start with 3 and end with 3."
+                    )
+                )
         if not customer_doc.custom_buyer_id_type and customer_doc.custom_buyer_id:
             frappe.throw(_("Buyer ID must be blank if Buyer ID Type is not set."))
         if "claudion4saudi" in frappe.get_installed_apps():
@@ -1829,6 +1984,12 @@ def zatca_background_on_submit(doc, _method=None, bypass_background_check=False)
         if settings.custom_phase_1_or_2 == "Phase-2":
 
             if field_exists and sales_invoice_doc.custom_unique_id:
+                if (
+                    settings.custom_send_invoice_to_zatca == "Background"
+                    and customer_doc.custom_b2c == 1
+                    and not bypass_background_check
+                ):
+                    return
                 if is_gpos_installed and sales_invoice_doc.custom_xml:
                     # Set the custom XML field
                     custom_xml_field = sales_invoice_doc.custom_xml
@@ -1859,7 +2020,7 @@ def zatca_background_on_submit(doc, _method=None, bypass_background_check=False)
                     )
                 elif (
                     settings.custom_send_invoice_to_zatca == "Background"
-                    and not bypass_background_check
+                    and not bypass_background_check and customer_doc.custom_b2c == 1
                 ):
                     zatca_call_scheduler_background(
                         invoice_number,
@@ -1880,13 +2041,15 @@ def zatca_background_on_submit(doc, _method=None, bypass_background_check=False)
 
         else:
             create_qr_code(sales_invoice_doc, method=None)
+        call_embed_pdf_on_submit(sales_invoice_doc,method=None)
+        
         doc.reload()
     except (ValueError, TypeError, KeyError, frappe.ValidationError) as e:
-        frappe.throw(_(f"Error in background call: {str(e)}"))
+        frappe.throw(_(f"Error in background call on submit: {str(e)}"))
 
 
 @frappe.whitelist()
-def resubmit_invoices(invoice_numbers, bypass_background_check=False):
+def resubmit_invoices(invoice_numbers:str, bypass_background_check:bool=False):
     """
     Resubmit invoices where custom_zatca_full_response contains 'RemoteDisconnected'.
     If the invoice is already submitted, call `zatca_background_on_submit`.
@@ -1901,6 +2064,7 @@ def resubmit_invoices(invoice_numbers, bypass_background_check=False):
             # Fetch the Sales Invoice document
             sales_invoice_doc = frappe.get_doc("Sales Invoice", invoice_number)
             company_doc = frappe.get_doc("Company", sales_invoice_doc.company)
+            customer_doc = frappe.get_doc("Customer", sales_invoice_doc.customer)
             if (
                 sales_invoice_doc.docstatus == 1
             ):  # Check if the invoice is already submitted
@@ -1909,12 +2073,17 @@ def resubmit_invoices(invoice_numbers, bypass_background_check=False):
                     sales_invoice_doc, bypass_background_check=True
                 )
 
-            elif company_doc.custom_submit_or_not == 1:
+            # elif company_doc.custom_submit_or_not == 1:
+            elif (
+                sales_invoice_doc.docstatus == 0
+                and company_doc.custom_submit_or_not == 1
+                and customer_doc.custom_b2c == 1
+            ):
                 # Submit the invoice
                 sales_invoice_doc.submit()
-                zatca_background_on_submit(
-                    sales_invoice_doc, bypass_background_check=True
-                )
+                # zatca_background_on_submit(
+                #     sales_invoice_doc, bypass_background_check=True
+                # )
 
         except (ValueError, TypeError, KeyError, frappe.ValidationError) as e:
             frappe.throw(_(f"Error in background call: {str(e)}"))

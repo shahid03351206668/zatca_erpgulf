@@ -165,16 +165,13 @@ def create_private_keys(company_abbr, zatca_doc):
 
 
 @frappe.whitelist(allow_guest=False)
-def create_csr(zatca_doc, portal_type, company_abbr):
+def create_csr(zatca_doc:dict | str, portal_type:str, company_abbr:str):
     """
     Function defining the create csr method with the config csr data
     """
     try:
-        # frappe.throw("hi")
-
         if isinstance(zatca_doc, str):
             zatca_doc = json.loads(zatca_doc)
-        # frappe.msgprint(f"Using OTP (Company): {zatca_doc}")
         # Validate zatca_doc structure
         if (
             not isinstance(zatca_doc, dict)
@@ -190,10 +187,8 @@ def create_csr(zatca_doc, portal_type, company_abbr):
         # Fetch CSR data based on document type
         if doc.doctype == "ZATCA Multiple Setting":
             csr_values = get_csr_data_multiple(doc)
-            # frappe.msgprint(f"Using OTP (Multiple Setting): {csr_values}")
         elif doc.doctype == "Company":
             csr_values = get_csr_data(company_abbr)
-            # frappe.msgprint(f"Using OTP (Company): {csr_values}")
         else:
             frappe.throw(_("Unsupported document type for CSR creation."))
 
@@ -221,12 +216,10 @@ def create_csr(zatca_doc, portal_type, company_abbr):
             customoid = encode_customoid("ZATCA-Code-Signing")
         if doc.doctype == "ZATCA Multiple Setting":
             private_key_pem = create_private_keys(doc, zatca_doc)
-            # frappe.msgprint(f"Using OTP (Multiple Setting): {csr_values}")
         elif doc.doctype == "Company":
             private_key_pem = create_private_keys(company_abbr, zatca_doc)
-            # frappe.msgprint(f"Using OTP (Company): {csr_values}")
         else:
-            frappe.throw("no private key.")
+            frappe.throw(_("no private key."))
 
         private_key = serialization.load_pem_private_key(
             private_key_pem, password=None, backend=default_backend()
@@ -316,7 +309,7 @@ def get_api_url(company_abbr, base_url):
 
 
 @frappe.whitelist(allow_guest=False)
-def create_csid(zatca_doc, company_abbr):
+def create_csid(zatca_doc: dict | str, company_abbr:str):
     """creating csid"""
     try:
         if isinstance(zatca_doc, str):
@@ -444,6 +437,8 @@ def create_public_key(company_abbr, source_doc):
                     certificate_data_str = company_doc.get("custom_certificate", "")
             elif source_doc.doctype == "Company":
                 certificate_data_str = company_doc.get("custom_certificate", "")
+            elif source_doc.doctype == "ZATCA Multiple Setting":
+                certificate_data_str = source_doc.get("custom_certficate") 
             else:
                 frappe.throw(_(f"Unsupported document type: {source_doc.doctype}"))
 
@@ -569,6 +564,8 @@ def digital_signature(hash1, company_abbr, source_doc):
 
         company_doc = frappe.get_doc("Company", company_name)
         # frappe.throw(f"Source doc type: {type(source_doc)}, value: {source_doc}")
+        private_key_data_str = None
+
         if source_doc:
             if source_doc.doctype in SUPPORTED_INVOICES:
                 # Use certificate from the company document for Sales Invoice
@@ -576,11 +573,17 @@ def digital_signature(hash1, company_abbr, source_doc):
                     zatca_settings = frappe.get_doc(
                         "ZATCA Multiple Setting", source_doc.custom_zatca_pos_name
                     )
-                    private_key_data_str = zatca_settings.get("custom_private_key")
+                    if zatca_settings.custom__use_company_certificate__keys != 1:
+                        private_key_data_str = zatca_settings.get("custom_private_key")
+                    else:
+                        linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                        private_key_data_str = linked_doc.get("custom_private_key")
                 else:
                     private_key_data_str = company_doc.get("custom_private_key")
             elif source_doc.doctype == "Company":
                 private_key_data_str = company_doc.get("custom_private_key")
+            elif source_doc.doctype == "ZATCA Multiple Setting":
+                private_key_data_str = source_doc.get("custom_private_key")
 
         if not private_key_data_str:
             frappe.throw(_("No private key data found for the company."))
@@ -595,7 +598,7 @@ def digital_signature(hash1, company_abbr, source_doc):
         return encoded_signature
 
     except (ValueError, KeyError, TypeError, frappe.ValidationError) as e:
-        frappe.throw(_)("eError in digital signature:" + str(e))
+        frappe.throw(_("Error in digital signature:") + str(e))
         return None
 
 
@@ -607,7 +610,7 @@ def extract_certificate_details(company_abbr, source_doc):
             frappe.throw(_(f"Company with abbreviation {company_abbr} not found."))
 
         company_doc = frappe.get_doc("Company", company_name)
-
+        certificate_data_str = None     
         if source_doc:
             if source_doc.doctype in SUPPORTED_INVOICES:
                 # Use certificate from the company document for Sales Invoice
@@ -616,14 +619,20 @@ def extract_certificate_details(company_abbr, source_doc):
                     zatca_settings = frappe.get_doc(
                         "ZATCA Multiple Setting", source_doc.custom_zatca_pos_name
                     )
-                    certificate_data_str = zatca_settings.get("custom_certficate")
+                    if zatca_settings.custom__use_company_certificate__keys != 1:
+                        certificate_data_str = zatca_settings.get("custom_certficate")
+                    else:
+                        linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                        certificate_data_str = linked_doc.get("custom_certificate")
                 else:
                     certificate_data_str = company_doc.get("custom_certificate")
             elif source_doc.doctype == "Company":
                 certificate_data_str = company_doc.get("custom_certificate")
+            elif source_doc.doctype == "ZATCA Multiple Setting":
+                certificate_data_str = source_doc.get("custom_certficate")
 
         if not certificate_data_str:
-            frappe.throw(_(f"No certificate data found for company {company_name}"))
+            frappe.throw(_(f"No certificate data found for company {source_doc}"))
 
         certificate_content = certificate_data_str.strip()
 
@@ -659,6 +668,7 @@ def certificate_hash(company_abbr, source_doc):
             frappe.throw(_(f"Company with abbreviation {company_abbr} not found."))
 
         company_doc = frappe.get_doc("Company", company_name)
+        certificate_data_str = None
         if source_doc:
             if source_doc.doctype in SUPPORTED_INVOICES:
                 # Use certificate from the company document for Sales Invoice
@@ -666,11 +676,17 @@ def certificate_hash(company_abbr, source_doc):
                     zatca_settings = frappe.get_doc(
                         "ZATCA Multiple Setting", source_doc.custom_zatca_pos_name
                     )
-                    certificate_data_str = zatca_settings.get("custom_certficate", "")
+                    if zatca_settings.custom__use_company_certificate__keys != 1:
+                        certificate_data_str = zatca_settings.get("custom_certficate", "")
+                    else:
+                        linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                        certificate_data_str = linked_doc.get("custom_certificate", "")
                 else:
                     certificate_data_str = company_doc.get("custom_certificate", "")
             elif source_doc.doctype == "Company":
                 certificate_data_str = company_doc.get("custom_certificate", "")
+            elif source_doc.doctype == "ZATCA Multiple Setting":
+                certificate_data_str = source_doc.get("custom_certficate")
 
         if not certificate_data_str:
             frappe.throw(_(f"No certificate data found for company {company_name}"))
@@ -699,7 +715,7 @@ def certificate_hash(company_abbr, source_doc):
 def xml_base64_decode(signed_xmlfile_name):
     """xml base64 decode"""
     try:
-        with open(signed_xmlfile_name, "r", encoding="utf-8") as file:
+        with open(signed_xmlfile_name, "r", encoding="utf-8") as file: # nosemgrep: frappe-semgrep-rules.rules.security.frappe-security-file-traversal
             xml = file.read().lstrip()
             base64_encoded = base64.b64encode(xml.encode("utf-8"))
             base64_decoded = base64_encoded.decode("utf-8")
@@ -709,17 +725,25 @@ def xml_base64_decode(signed_xmlfile_name):
         return None
 
 
-def signxml_modify(company_abbr, source_doc):
+def signxml_modify(company_abbr,finalzatcaxml,source_doc):
     """modify the signed xml by adding the values like signing time,serial number etc"""
     try:
         encoded_certificate_hash = certificate_hash(company_abbr, source_doc)
         issuer_name, serial_number = extract_certificate_details(
             company_abbr, source_doc
         )
-        original_invoice_xml = etree.parse(
-            frappe.local.site + "/private/files/finalzatcaxml.xml"
-        )
+        
+        # original_invoice_xml = etree.parse(
+        #     f"{frappe.local.site}/private/files/finalzatcaxml_{invoice_number}.xml"
+        # # )
+        # original_invoice_xml = etree.fromstring(
+        #     finalzatcaxml.encode("utf-8")
+        # )       
+        # root = original_invoice_xml.getroot()
+        root_element = etree.fromstring(finalzatcaxml.encode("utf-8"))
+        original_invoice_xml = etree.ElementTree(root_element)
         root = original_invoice_xml.getroot()
+
         namespaces = {
             "ext": "urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2",
             "sig": "urn:oasis:names:specification:ubl:schema:xsd:CommonSignatureComponents-2",
@@ -741,13 +765,19 @@ def signxml_modify(company_abbr, source_doc):
         signing_time = element_st.text
         element_in.text = issuer_name
         element_sn.text = str(serial_number)
-        with open(frappe.local.site + "/private/files/after_step_4.xml", "wb") as file:
-            original_invoice_xml.write(
-                file,
-                encoding="utf-8",
-                xml_declaration=True,
-            )
-        return namespaces, signing_time
+        modified_xml_string = etree.tostring(
+            root,
+            encoding="utf-8",
+            xml_declaration=True,
+            pretty_print=True,
+        ).decode("utf-8")
+        # with open(f"{frappe.local.site}/private/files/after_step_4_{invoice_number}.xml", "wb") as file:
+        #     original_invoice_xml.write(
+        #         file,
+        #         encoding="utf-8",
+        #         xml_declaration=True,
+        #     )
+        return modified_xml_string,namespaces, signing_time
     except (ValueError, KeyError, TypeError, frappe.ValidationError) as e:
         frappe.throw(_(" error in modification of xml sign part: " + str(e)))
         return None
@@ -795,6 +825,7 @@ def generate_signed_properties_hash(
 
 
 def populate_the_ubl_extensions_output(
+    modified_xml_string,
     encoded_signature,
     namespaces,
     signed_properties_base64,
@@ -804,16 +835,18 @@ def populate_the_ubl_extensions_output(
 ):
     """populate the ubl extension output by giving the signature values and digest values"""
     try:
-        updated_invoice_xml = etree.parse(
-            frappe.local.site + "/private/files/after_step_4.xml"
-        )
-        root3 = updated_invoice_xml.getroot()
+        # updated_invoice_xml = etree.parse(
+        #     f"{frappe.local.site}/private/files/after_step_4_{invoice_number}.xml"
+        # )
+        # root3 = updated_invoice_xml.getroot()
+        root3 = etree.fromstring(modified_xml_string.encode("utf-8"))
+        updated_invoice_xml = etree.ElementTree(root3)
         company_name = frappe.db.get_value("Company", {"abbr": company_abbr}, "name")
         if not company_name:
             frappe.throw(_(f"Company with abbreviation {company_abbr} not found."))
 
         company_doc = frappe.get_doc("Company", company_name)
-
+        certificate_data_str = None
         if source_doc:
             if source_doc.doctype in SUPPORTED_INVOICES:
                 # Use certificate from the company document for Sales Invoice
@@ -822,11 +855,17 @@ def populate_the_ubl_extensions_output(
                     zatca_settings = frappe.get_doc(
                         "ZATCA Multiple Setting", source_doc.custom_zatca_pos_name
                     )
-                    certificate_data_str = zatca_settings.get("custom_certficate")
+                    if zatca_settings.custom__use_company_certificate__keys != 1:
+                        certificate_data_str = zatca_settings.get("custom_certficate")
+                    else:
+                        linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                        certificate_data_str = linked_doc.get("custom_certificate")
                 else:
                     certificate_data_str = company_doc.get("custom_certificate")
             elif source_doc.doctype == "Company":
                 certificate_data_str = company_doc.get("custom_certificate")
+            elif source_doc.doctype == "ZATCA Multiple Setting":
+                certificate_data_str = source_doc.get("custom_certficate") 
 
         if not certificate_data_str:
             frappe.throw(_(f"No certificate data found for company {company_name}"))
@@ -851,12 +890,17 @@ def populate_the_ubl_extensions_output(
         x509certificate6.text = content
         digestvalue6.text = signed_properties_base64
         digestvalue6_2.text = encoded_hash
-
-        with open(
-            frappe.local.site + "/private/files/final_xml_after_sign.xml", "wb"
-        ) as file:
-            updated_invoice_xml.write(file, encoding="utf-8", xml_declaration=True)
-
+        final_xml_string = etree.tostring(
+            root3,
+            encoding="utf-8",
+            xml_declaration=True,
+            pretty_print=True,
+        ).decode("utf-8")
+        # with open(
+        #     f"{frappe.local.site}/private/files/final_xml_after_sign_{invoice_number}.xml", "wb"
+        # ) as file:
+        #     updated_invoice_xml.write(file, encoding="utf-8", xml_declaration=True)
+        return final_xml_string
     except (ValueError, KeyError, TypeError, frappe.ValidationError) as e:
         frappe.throw(_("Error in populating UBL extension output: " + str(e)))
         return
@@ -870,7 +914,7 @@ def extract_public_key_data(company_abbr, source_doc):
             frappe.throw(_(f"Company with abbreviation {company_abbr} not found."))
 
         company_doc = frappe.get_doc("Company", company_name)
-
+        public_key_pem = None
         if source_doc:
             if source_doc.doctype in SUPPORTED_INVOICES:
                 # Use certificate from the company document for Sales Invoice
@@ -879,13 +923,19 @@ def extract_public_key_data(company_abbr, source_doc):
                     zatca_settings = frappe.get_doc(
                         "ZATCA Multiple Setting", source_doc.custom_zatca_pos_name
                     )
-                    public_key_pem = zatca_settings.get("custom_public_key", "")
+                    if zatca_settings.custom__use_company_certificate__keys != 1:
+                        public_key_pem = zatca_settings.get("custom_public_key", "")
+                    else:
+                        linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                        public_key_pem = linked_doc.get("custom_public_key", "")
                 else:
                     public_key_pem = company_doc.get("custom_public_key", "")
             elif source_doc.doctype == "Company":
                 public_key_pem = company_doc.get("custom_public_key", "")
+            elif source_doc.doctype == "ZATCA Multiple Setting":
+                public_key_pem = source_doc.get("custom_public_key", "")
         if not public_key_pem:
-            frappe.throw(_(f"No public key found for company {company_name}"))
+            frappe.throw(_(f"No public key found for company {source_doc}"))
 
         lines = public_key_pem.splitlines()
         key_data = "".join(lines[1:-1])
@@ -947,7 +997,7 @@ def tag9_signature_ecdsa(company_abbr, source_doc):
             frappe.throw(_(f"Company with abbreviation {company_abbr} not found."))
 
         company_doc = frappe.get_doc("Company", company_name)
-
+        certificate_content = None
         if source_doc:
             if source_doc.doctype in SUPPORTED_INVOICES:
                 # Use certificate from the company document for Sales Invoice
@@ -956,11 +1006,17 @@ def tag9_signature_ecdsa(company_abbr, source_doc):
                     zatca_settings = frappe.get_doc(
                         "ZATCA Multiple Setting", source_doc.custom_zatca_pos_name
                     )
-                    certificate_content = zatca_settings.custom_certficate or ""
+                    if zatca_settings.custom__use_company_certificate__keys != 1:
+                        certificate_content = zatca_settings.custom_certficate or ""
+                    else:
+                        linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                        certificate_content = linked_doc.custom_certificate or ""
                 else:
                     certificate_content = company_doc.custom_certificate or ""
             elif source_doc.doctype == "Company":
                 certificate_content = company_doc.custom_certificate or ""
+            elif source_doc.doctype == "ZATCA Multiple Setting":
+                certificate_content = source_doc.custom_certficate
 
         if not certificate_content:
             frappe.throw(_(f"No certificate found for company in tag9 {company_abbr}"))
@@ -985,15 +1041,16 @@ def tag9_signature_ecdsa(company_abbr, source_doc):
         return None
 
 
-def generate_tlv_xml(company_abbr, source_doc):
+def generate_tlv_xml(final_xml_string,company_abbr,source_doc):
     """generate xml by adding the tlv data"""
     try:
 
-        with open(
-            frappe.local.site + "/private/files/final_xml_after_sign.xml", "rb"
-        ) as file:
-            xml_data = file.read()
-        root = etree.fromstring(xml_data)
+        # with open(
+        #     f"{frappe.local.site}/private/files/final_xml_after_sign_{invoice_number}.xml", "rb"
+        # ) as file:
+        #     xml_data = file.read()
+        # root = etree.fromstring(xml_data)
+        root = etree.fromstring(final_xml_string.encode("utf-8"))
         namespaces = {
             "ubl": "urn:oasis:names:specification:ubl:schema:xsd:Invoice-2",
             "cac": "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2",
@@ -1064,11 +1121,12 @@ def generate_tlv_xml(company_abbr, source_doc):
         return None
 
 
-def update_qr_toxml(qrcodeb64, company_abbr):
+def update_qr_toxml(final_xml_string,qrcodeb64, company_abbr):
     """updating the  alla values of qr to xml"""
     try:
-        xml_file_path = frappe.local.site + "/private/files/final_xml_after_sign.xml"
-        xml_tree = etree.parse(xml_file_path)
+        # xml_file_path = f"{frappe.local.site}/private/files/final_xml_after_sign_{invoice_number}.xml"
+        # xml_tree = etree.parse(xml_file_path)
+        xml_tree = etree.fromstring(final_xml_string.encode("utf-8"))
         namespaces = {
             "cac": "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2",
             "cbc": "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2",
@@ -1083,22 +1141,31 @@ def update_qr_toxml(qrcodeb64, company_abbr):
             frappe.msgprint(
                 _(f"QR code element not found in the XML for company {company_abbr}")
             )
-        xml_tree.write(xml_file_path, encoding="UTF-8", xml_declaration=True)
+        # xml_tree.write(xml_file_path, encoding="UTF-8", xml_declaration=True)
+        updated_xml_string = etree.tostring(
+            xml_tree,
+            encoding="utf-8",
+            xml_declaration=True,
+            pretty_print=True,
+        ).decode("utf-8")
+        return updated_xml_string
     except (ValueError, KeyError, TypeError, frappe.ValidationError) as e:
         frappe.throw(
             _(f"Error in saving TLV data to XML for company {company_abbr}: " + str(e))
         )
 
 
-def structuring_signedxml():
+def structuring_signedxml(invoice_number,updated_xml_string):
     """structuring the signed xml"""
     try:
-        with open(
-            frappe.local.site + "/private/files/final_xml_after_sign.xml",
-            "r",
-            encoding="utf-8",
-        ) as file:
-            xml_content = file.readlines()
+        # with open(
+        #     f"{frappe.local.site}/private/files/final_xml_after_sign_{invoice_number}.xml",
+        #     "r",
+        #     encoding="utf-8",
+        # ) as file:
+        #     xml_content = file.readlines()
+
+        # update_xml_string=xml_content
         indentations = {
             29: [
                 '<xades:QualifyingProperties xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" Target="signature">',
@@ -1139,15 +1206,29 @@ def structuring_signedxml():
                         return " " * (col - 1) + line.lstrip()
             return line
 
-        adjusted_xml_content = [adjust_indentation(line) for line in xml_content]
+        # adjusted_xml_content = [adjust_indentation(line) for line in xml_content]
+        adjusted_xml_content = [
+        adjust_indentation(line) for line in updated_xml_string.splitlines(keepends=True)
+        ]
+        safe_invoice_number = invoice_number.replace("/", "-")
+        # nosemgrep: frappe-semgrep-rules.rules.security.frappe-security-file-traversal
         with open(
-            frappe.local.site + "/private/files/final_xml_after_indent.xml",
+            f"{frappe.local.site}/private/files/final_xml_after_indent_{safe_invoice_number}.xml",
             "w",
             encoding="utf-8",
-        ) as file:
+        ) as file: 
             file.writelines(adjusted_xml_content)
+    
+
+        # adjusted_xml_content = [adjust_indentation(line) for line in updated_xml_string]
+        # with open(
+        #     f"{frappe.local.site}/private/files/final_xml_after_indent_{invoice_number}.xml",
+        #     "w",
+        #     encoding="utf-8",
+        # ) as file:
+        #     file.writelines(adjusted_xml_content)
         signed_xmlfile_name = (
-            frappe.local.site + "/private/files/final_xml_after_indent.xml"
+            f"{frappe.local.site}/private/files/final_xml_after_indent_{safe_invoice_number}.xml"
         )
         return signed_xmlfile_name
     except (ValueError, KeyError, TypeError, frappe.ValidationError) as e:
@@ -1182,11 +1263,15 @@ def compliance_api_call(
             zatca_settings = frappe.get_doc(
                 "ZATCA Multiple Setting", source_doc.custom_zatca_pos_name
             )
-            csid = zatca_settings.custom_basic_auth_from_csid
+            if zatca_settings.custom__use_company_certificate__keys != 1:
+                csid = zatca_settings.custom_basic_auth_from_csid
+            else:
+                linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                csid = linked_doc.custom_basic_auth_from_csid
         else:
             csid = company_doc.custom_basic_auth_from_csid
         if not csid:
-            frappe.throw(_((f"CSID for company {company_abbr} not found")))
+            frappe.throw(_((f"CSID for company {company_abbr} not foundor not found in multpile setting page")))
 
         headers = {
             "accept": "application/json",
@@ -1203,6 +1288,8 @@ def compliance_api_call(
             data=payload,
             timeout=300,
         )
+        # frappe.throw(response.status_code)
+        frappe.throw(_(response.text))
         if response.status_code != 200:
             frappe.throw(_(f"Error in compliance: {response.text}"))
         if response.status_code != 202:
@@ -1219,7 +1306,7 @@ def compliance_api_call(
 
 
 @frappe.whitelist(allow_guest=False)
-def production_csid(zatca_doc, company_abbr):
+def production_csid(zatca_doc: dict | str, company_abbr:str):
     """production csid button and api"""
     try:
 
@@ -1275,10 +1362,10 @@ def production_csid(zatca_doc, company_abbr):
             timeout=300,
         )
         frappe.publish_realtime("hide_gif", user=frappe.session.user)
-        frappe.msgprint(response.text)
+        frappe.msgprint(_(response.text))
 
         if response.status_code != 200:
-            frappe.throw("Error in production: " + response.text)
+            frappe.throw(_("Error in production:" + response.text))
 
         data = response.json()
         concatenated_value = data["binarySecurityToken"] + ":" + data["secret"]

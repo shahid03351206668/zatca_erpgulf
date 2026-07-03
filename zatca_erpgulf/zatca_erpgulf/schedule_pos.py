@@ -85,7 +85,7 @@ def submit_posinvoices_to_zatca_background_process():
 
                 ],
             ],
-            fields=["name", "docstatus", "company"],
+            fields=["name", "docstatus", "company", "customer"],
         )
 
         if not not_submitted_invoices:
@@ -100,6 +100,9 @@ def submit_posinvoices_to_zatca_background_process():
             pos_invoice_doc = frappe.get_doc("POS Invoice", invoice["name"])
             company_doc = frappe.get_doc("Company", pos_invoice_doc.company)
             # print(f"Processing {pos_invoice_doc.name}", "ZATCA Background Job")
+            if company_doc.custom_phase_1_or_2 == "Phase-1":
+                # frappe.log_error(f"Skipping invoice {invoice['name']} because company is Phase-1", "ZATCA Background Debug")
+                continue
             if pos_invoice_doc.docstatus == 1:
                 zatca_background_on_submit(
                     pos_invoice_doc, bypass_background_check=True
@@ -108,12 +111,19 @@ def submit_posinvoices_to_zatca_background_process():
                 #     f"Processed {pos_invoice_doc.name}: Sent to ZATCA.",
                 #     "ZATCA Background Job",
                 # )
-            elif company_doc.custom_submit_or_not == 1:
-                pos_invoice_doc.submit()
+            # elif company_doc.custom_submit_or_not == 1:
+            else:
+                customer_doc = frappe.get_doc("Customer", pos_invoice_doc.customer)
 
-                zatca_background_on_submit(
-                    pos_invoice_doc, bypass_background_check=True
-                )
+                if (
+                    company_doc.custom_submit_or_not == 1
+                    and customer_doc.custom_b2c == 1
+                ):
+                    pos_invoice_doc.submit()
+
+                    zatca_background_on_submit(
+                        pos_invoice_doc, bypass_background_check=True
+                    )
                 # frappe.log_error(
                 #     f"Submitted {pos_invoice_doc.name} before sending to ZATCA.",
                 #     "ZATCA Background Job",

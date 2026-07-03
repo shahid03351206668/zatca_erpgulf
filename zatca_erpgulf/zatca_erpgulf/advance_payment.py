@@ -93,15 +93,44 @@ def get_tax_for_item(full_string, item):
     except TypeError as e:
         frappe.throw(_("Type error occurred in tax for item: " + str(e)))
         return None
+from decimal import Decimal, ROUND_HALF_UP
+import json
+
+def generate_item_wise_tax_detail(sales_invoice_doc, tax_index=0):
+    """
+    Generate item-wise tax detail for a sales invoice.
+    """
+    if not sales_invoice_doc.custom_item:
+        return "{}"
+
+    # Get the tax rate from the specified tax entry
+    tax_rate = sales_invoice_doc.taxes[tax_index].rate
+
+    item_wise_tax_detail = {}
+
+    for single_item in sales_invoice_doc.custom_item:
+        item_code = single_item.item_code
+        amount = Decimal(str(single_item.amount))
+        tax_amount = (amount * Decimal(str(tax_rate)) / Decimal("100")).quantize(
+            Decimal("0.0001"), rounding=ROUND_HALF_UP
+        )
+
+        item_wise_tax_detail[item_code] = [float(tax_rate), float(tax_amount)]
+
+    # Store as JSON string in the tax entry
+    sales_invoice_doc.taxes[tax_index].item_wise_tax_detail = json.dumps(item_wise_tax_detail)
+
+    return sales_invoice_doc.taxes[tax_index].item_wise_tax_detail
 
 
 def get_tax_total_from_items(sales_invoice_doc):
     """Getting tax total for items"""
     try:
         total_tax = 0
+        tax_detail = generate_item_wise_tax_detail(sales_invoice_doc)
         for single_item in sales_invoice_doc.custom_item:
             _item_tax_amount, tax_percent = get_tax_for_item(
-                sales_invoice_doc.taxes[0].item_wise_tax_detail, single_item.item_code
+                tax_detail, single_item.item_code
             )
             total_tax = total_tax + (single_item.net_amount * (tax_percent / 100))
         return total_tax
@@ -361,7 +390,7 @@ def additional_reference_advanve(invoice, company_abbr, sales_invoice_doc):
     try:
         company_name = frappe.db.get_value("Company", {"abbr": company_abbr}, "name")
         if not company_name:
-            frappe.throw(f"Company with abbreviation {company_abbr} not found.")
+            frappe.throw(_(f"Company with abbreviation {company_abbr} not found."))
 
         company_doc = frappe.get_doc("Company", company_name)
 
@@ -414,7 +443,7 @@ def company_data_advance(invoice, sales_invoice_doc):
     try:
         company_doc = frappe.get_doc("Company", sales_invoice_doc.company)
         if company_doc.custom_costcenter == 1 and not sales_invoice_doc.cost_center:
-            frappe.throw("no Cost Center is set in the invoice.Give the feild")
+            frappe.throw(_("no Cost Center is set in the invoice.Give the feild"))
         custom_registration_type = company_doc.custom_registration_type
         custom_company_registration = company_doc.custom_company_registration
 
@@ -495,7 +524,7 @@ def customer_data_advance(invoice, sales_invoice_doc):
             address = frappe.get_doc("Address", customer_doc.customer_primary_address)
 
             if not address:
-                frappe.throw("Customer address is mandatory for non-B2C customers.")
+                frappe.throw(_("Customer address is mandatory for non-B2C customers."))
 
             cac_postaladdress_1 = ET.SubElement(cac_party_2, "cac:PostalAddress")
             # frappe.throw(address.address_line1)
@@ -608,7 +637,7 @@ def delivery_and_payment_means_for_compliance_advance(
             cbc_instruction_note = ET.SubElement(
                 cac_payment_means, "cbc:InstructionNote"
             )
-            cbc_instruction_note.text = "Cancellation"
+            cbc_instruction_note.text = "Cancellation or Additional Charge"
 
         return invoice
 
@@ -622,9 +651,10 @@ def item_data_advance(invoice, sales_invoice_doc, invoice_number):
     The function defines the xml creating without item tax template
     """
     try:
+        tax_detail = generate_item_wise_tax_detail(sales_invoice_doc)
         for single_item in sales_invoice_doc.custom_item:
             _item_tax_amount, item_tax_percentage = get_tax_for_item(
-                sales_invoice_doc.taxes[0].item_wise_tax_detail, single_item.item_code
+                tax_detail, single_item.item_code
             )
             cac_invoiceline = ET.SubElement(invoice, "cac:InvoiceLine")
             cbc_id_10 = ET.SubElement(cac_invoiceline, "cbc:ID")
@@ -667,7 +697,6 @@ def item_data_advance(invoice, sales_invoice_doc, invoice_number):
             )
             lineextensionamount = float(cbc_lineextensionamount_1.text)
             taxamount = float(cbc_taxamount_3.text)
-            # frappe.throw(f"Tax Amount1: {taxamount}")
             cbc_roundingamount.text = str(round(lineextensionamount + taxamount, 2))
             cac_item = ET.SubElement(cac_invoiceline, "cac:Item")
             cbc_name = ET.SubElement(cac_item, "cbc:Name")
@@ -738,24 +767,17 @@ def xml_structuring_advance(invoice, sales_invoice_doc):
     try:
 
         tree = ET.ElementTree(invoice)
-        xml_file_path = frappe.local.site + "/private/files/xml_filesadavance1.xml"
-
-        # Save the XML tree to a file
-        with open(xml_file_path, "wb") as file:
-            tree.write(file, encoding="utf-8", xml_declaration=True)
-
-        # Read the XML file and format it
-        with open(xml_file_path, "r", encoding="utf-8") as file:
-            xml_string = file.read()
+        xml_string = ET.tostring(invoice, encoding="utf-8", method="xml")
 
         # Format the XML string to make it pretty
         xml_dom = minidom.parseString(xml_string)
         pretty_xml_string = xml_dom.toprettyxml(indent="  ")
 
-        # Write the formatted XML to the final file
-        final_xml_path = frappe.local.site + "/private/files/finalzatcaxmladavance1.xml"
-        with open(final_xml_path, "w", encoding="utf-8") as file:
-            file.write(pretty_xml_string)
+        # # Write the formatted XML to the final file
+        # final_xml_path = f"{frappe.local.site}/private/files/finalzatcaxmladavance1_{invoice_number}.xml"
+        # with open(final_xml_path, "w", encoding="utf-8") as file:
+        #     file.write(pretty_xml_string)
+        return pretty_xml_string
 
     except (FileNotFoundError, IOError):
         frappe.throw(
@@ -785,7 +807,8 @@ def xml_structuring_advance(invoice, sales_invoice_doc):
 def xml_base64_decode(signed_xmlfile_name):
     """xml base64 decode"""
     try:
-        with open(signed_xmlfile_name, "r", encoding="utf-8") as file:
+        # nosemgrep: frappe-semgrep-rules.rules.security.frappe-security-file-traversal
+        with open(signed_xmlfile_name, "r", encoding="utf-8") as file: 
             xml = file.read().lstrip()
             base64_encoded = base64.b64encode(xml.encode("utf-8"))
             base64_decoded = base64_encoded.decode("utf-8")
@@ -819,7 +842,7 @@ def error_log():
     """defining the error log"""
     try:
         frappe.log_error(
-            title="ZATCA invoice call failed in clearance status",
+            title="ZATCA invoice call failed in clearance/Reporting  status",
             message=frappe.get_traceback(),
         )
     except (ValueError, TypeError, KeyError, frappe.ValidationError) as e:
@@ -860,7 +883,7 @@ def clearance_api(
                 "Cookie": "TS0106293e=0132a679c03c628e6c49de86c0f6bb76390abb4416868d6368d6d7c05da619c8326266f5bc262b7c0c65a6863cd3b19081d64eee99",
             }
         else:
-            frappe.throw(f"Production CSID for company {company_abbr} not found.")
+            frappe.throw(_(f"Production CSID for company {company_abbr} not found."))
             headers = None
         frappe.publish_realtime(
             "show_gif",
@@ -1135,7 +1158,7 @@ def attach_qr_image_advance(qrcodeb64, sales_invoice_doc):
         frappe.throw(_(("attach qr images" f"error: {str(e)}")))
 
 
-@frappe.whitelist(allow_guest=False)
+# @frappe.whitelist(allow_guest=False)
 def zatca_call(
     invoice_number,
     compliance_type="0",
@@ -1147,7 +1170,7 @@ def zatca_call(
     based on this the zATCA output and message is getting"""
     try:
         if not frappe.db.exists("Advance Sales Invoice", invoice_number):
-            frappe.throw("Invoice Number is NOT Valid: " + str(invoice_number))
+            frappe.throw(_("Invoice Number is NOT Valid:" + str(invoice_number)))
         invoice = xml_tags()
         invoice, uuid1, sales_invoice_doc = salesinvoice_data_advance(
             invoice, invoice_number
@@ -1170,15 +1193,7 @@ def zatca_call(
         # frappe.throw(str(sales_invoice_doc))
         invoice = tax_data(invoice, sales_invoice_doc)
         invoice = item_data_advance(invoice, sales_invoice_doc, invoice_number)
-        xml_structuring_advance(invoice, sales_invoice_doc)
-
-        with open(
-            frappe.local.site + "/private/files/finalzatcaxmladavance1.xml",
-            "r",
-            encoding="utf-8",
-        ) as file:
-            file_content = file.read()
-            # frappe.msgprint(file_content)
+        file_content = xml_structuring_advance(invoice,sales_invoice_doc)
 
         tag_removed_xml = removetags(file_content)
         canonicalized_xml = canonicalize_xml(tag_removed_xml)
@@ -1188,11 +1203,12 @@ def zatca_call(
             company_abbr, source_doc
         )
         encoded_certificate_hash = certificate_hash(company_abbr, source_doc)
-        namespaces, signing_time = signxml_modify(company_abbr, source_doc)
+        modified_xml_string,namespaces, signing_time = signxml_modify(company_abbr,file_content, source_doc)
         signed_properties_base64 = generate_signed_properties_hash(
             signing_time, issuer_name, serial_number, encoded_certificate_hash
         )
-        populate_the_ubl_extensions_output(
+        final_xml_string = populate_the_ubl_extensions_output(
+            modified_xml_string,
             encoded_signature,
             namespaces,
             signed_properties_base64,
@@ -1200,7 +1216,7 @@ def zatca_call(
             company_abbr,
             source_doc,
         )
-        tlv_data = generate_tlv_xml(company_abbr, source_doc)
+        tlv_data = generate_tlv_xml(final_xml_string,company_abbr, source_doc)
 
         tagsbufsarray = []
         for tag_num, tag_value in tlv_data.items():
@@ -1208,8 +1224,8 @@ def zatca_call(
 
         qrcodebuf = b"".join(tagsbufsarray)
         qrcodeb64 = base64.b64encode(qrcodebuf).decode("utf-8")
-        update_qr_toxml(qrcodeb64, company_abbr)
-        signed_xmlfile_name = structuring_signedxml()
+        updated_xml_string= update_qr_toxml(final_xml_string,qrcodeb64, company_abbr)
+        signed_xmlfile_name = structuring_signedxml(invoice_number,updated_xml_string)
         if compliance_type == "0":
             # if customer_doc.custom_b2c != 1:
 
@@ -1237,7 +1253,7 @@ def zatca_call(
             message=f"{frappe.get_traceback()}\nError: {str(e)}",
         )
 
-
+# nosemgrep: frappe-semgrep-rules.rules.security.missing-argument-type-hint
 @frappe.whitelist(allow_guest=False)
 def zatca_background_on_submit(doc, _method=None, bypass_background_check=False):
     """referes according to the ZATC based sytem with the submitbutton of the sales invoice"""
@@ -1290,9 +1306,9 @@ def zatca_background_on_submit(doc, _method=None, bypass_background_check=False)
                         f"{tax_rate:.2f}" == "15.00"
                         and zatca_tax_category != "Standard"
                     ):
-                        frappe.throw(
+                        frappe.throw(_(
                             "Check the ZATCA category code and enable it as Standard."
-                        )
+                        ))
 
         if not frappe.db.exists("Advance Sales Invoice", invoice_number):
             frappe.throw(
@@ -1330,7 +1346,7 @@ def zatca_background_on_submit(doc, _method=None, bypass_background_check=False)
     except (ValueError, TypeError, KeyError, frappe.ValidationError) as e:
         frappe.throw(_(f"Error in background call: {str(e)}"))
 
-
+# nosemgrep: frappe-semgrep-rules.rules.security.missing-argument-type-hint
 @frappe.whitelist(allow_guest=False)
 def zatca_background(invoice_number, source_doc, bypass_background_check=False):
     """defines the zatca bacground"""

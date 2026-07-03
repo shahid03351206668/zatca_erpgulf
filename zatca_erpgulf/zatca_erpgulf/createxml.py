@@ -55,6 +55,7 @@ def billing_reference_for_credit_and_debit_note(invoice, sales_invoice_doc):
         cbc_id13 = ET.SubElement(cac_invoicedocumentreference, CBC_ID)
         cbc_id13.text = (
             sales_invoice_doc.return_against
+            or sales_invoice_doc.custom_return_against_for_zatca
         )  # field from return against invoice.
 
         return invoice
@@ -296,12 +297,19 @@ def invoice_typecode_simplified(invoice, sales_invoice_doc):
         ]
         five_digit_code = "".join("1" if checkbox else "0" for checkbox in checkbox_map)
         final_code = base_code + five_digit_code
-        if sales_invoice_doc.is_return == 0:
-            cbc_invoicetypecode.set("name", final_code)
-            cbc_invoicetypecode.text = "388"
-        elif sales_invoice_doc.is_return == 1:
+        # if sales_invoice_doc.is_return == 0:
+        #     cbc_invoicetypecode.set("name", final_code)
+        #     cbc_invoicetypecode.text = "388"
+        if sales_invoice_doc.is_return == 1:
             cbc_invoicetypecode.set("name", final_code)
             cbc_invoicetypecode.text = "381"
+        elif sales_invoice_doc.is_debit_note == 1:
+            cbc_invoicetypecode.set("name", final_code)
+            cbc_invoicetypecode.text = "383"
+        else:
+    # Standard Invoice
+            cbc_invoicetypecode.set("name", final_code)
+            cbc_invoicetypecode.text = "388"
 
         return invoice
     except (ET.ParseError, AttributeError, ValueError) as e:
@@ -326,12 +334,20 @@ def invoice_typecode_standard(invoice, sales_invoice_doc):
 
         five_digit_code = "".join("1" if checkbox else "0" for checkbox in checkbox_map)
         final_code = base_code + five_digit_code
-        if sales_invoice_doc.is_return == 0:
-            cbc_invoicetypecode.set("name", final_code)
-            cbc_invoicetypecode.text = "388"
-        elif sales_invoice_doc.is_return == 1:
+        # if sales_invoice_doc.is_return == 0:
+        #     cbc_invoicetypecode.set("name", final_code)
+        #     cbc_invoicetypecode.text = "388"
+        if sales_invoice_doc.is_return == 1:
             cbc_invoicetypecode.set("name", final_code)
             cbc_invoicetypecode.text = "381"
+        elif sales_invoice_doc.is_debit_note == 1:
+            cbc_invoicetypecode.set("name", final_code)
+            cbc_invoicetypecode.text = "383"
+        else:
+            # Standard Invoice
+            cbc_invoicetypecode.set("name", final_code)
+            cbc_invoicetypecode.text = "388"
+
         return invoice
     except (ET.ParseError, AttributeError, ValueError) as e:
         frappe.throw(_(f"Error in standard invoice type code: {e}"))
@@ -347,8 +363,9 @@ def doc_reference(invoice, sales_invoice_doc, invoice_number):
         cbc_documentcurrencycode = ET.SubElement(invoice, "cbc:DocumentCurrencyCode")
         cbc_documentcurrencycode.text = sales_invoice_doc.currency
         cbc_taxcurrencycode = ET.SubElement(invoice, "cbc:TaxCurrencyCode")
-        cbc_taxcurrencycode.text = "SAR"  # SAR is as zatca requires tax amount in SAR
-        if sales_invoice_doc.is_return == 1:
+        cbc_taxcurrencycode.text ="SAR" # SAR is as zatca requires tax amount in SAR
+        # if sales_invoice_doc.is_return == 1:
+        if sales_invoice_doc.is_return == 1 or sales_invoice_doc.is_debit_note == 1:
             invoice = billing_reference_for_credit_and_debit_note(
                 invoice, sales_invoice_doc
             )
@@ -450,7 +467,11 @@ def additional_reference(invoice, company_abbr, sales_invoice_doc):
             zatca_settings = frappe.get_doc(
                 "ZATCA Multiple Setting", sales_invoice_doc.custom_zatca_pos_name
             )
-            pih = zatca_settings.custom_pih
+            if zatca_settings.custom__use_company_certificate__keys != 1:
+                pih = zatca_settings.custom_pih
+            else:
+                linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                pih = linked_doc.custom_pih
         else:
             pih = company_doc.custom_pih
         cbc_embeddeddocumentbinaryobject.text = pih
@@ -517,9 +538,9 @@ def get_address(sales_invoice_doc, company_doc):
         )
 
         if not address_list:
-            frappe.throw(
+            frappe.throw(_(
                 f"ZATCA requires a proper address. Please add an address for Cost Center: {cost_center_doc.name}."
-            )
+            ))
 
         return address_list[0]  # Return the Cost Center's address
 
@@ -717,13 +738,13 @@ def customer_data(invoice, sales_invoice_doc):
         cac_partytaxscheme_1 = ET.SubElement(cac_party_2, "cac:PartyTaxScheme")
 
         # # Only include tax ID if country is Saudi Arabia
-        if address and address.country == "Saudi Arabia":
-            cbc_company_id = ET.SubElement(cac_partytaxscheme_1, "cbc:CompanyID")
-            cbc_company_id.text = customer_doc.tax_id
-         # Only add CompanyID if custom_buyer_id is not set
-        # if not customer_doc.custom_buyer_id:
+        # if address and address.country == "Saudi Arabia":
         #     cbc_company_id = ET.SubElement(cac_partytaxscheme_1, "cbc:CompanyID")
-        #     cbc_company_id.text = customer_doc.tax_id 
+        #     cbc_company_id.text = customer_doc.tax_id
+         # Only add CompanyID if custom_buyer_id is not set
+        if not customer_doc.custom_buyer_id or customer_doc.tax_id:
+            cbc_company_id = ET.SubElement(cac_partytaxscheme_1, "cbc:CompanyID")
+            cbc_company_id.text = customer_doc.tax_id 
 
 
         # Always include tax scheme
@@ -766,7 +787,13 @@ def delivery_and_payment_means(invoice, sales_invoice_doc, is_return):
             cbc_instruction_note = ET.SubElement(
                 cac_payment_means, "cbc:InstructionNote"
             )
-            cbc_instruction_note.text = "Cancellation"
+            cbc_instruction_note.text = "Cancellation or Returned"
+        
+        if sales_invoice_doc.is_debit_note == 1 :
+            cbc_instruction_note = ET.SubElement(
+                cac_payment_means, "cbc:InstructionNote"
+            )
+            cbc_instruction_note.text = "Price adjustment or Additional charges"
 
         return invoice
 
@@ -797,7 +824,7 @@ def delivery_and_payment_means_for_compliance(
             cbc_instruction_note = ET.SubElement(
                 cac_payment_means, "cbc:InstructionNote"
             )
-            cbc_instruction_note.text = "Cancellation"
+            cbc_instruction_note.text = "Cancellation or Additional Charge"
 
         return invoice
 
@@ -948,12 +975,12 @@ def add_document_level_discount_with_tax_template(invoice, sales_invoice_doc):
         elif vat_category_code == "Services outside scope of tax / Not subject to VAT":
             cbc_id.text = "O"
         else:
-            frappe.throw(
-                "Invalid or missing ZATCA VAT category in the Item Tax Template " 
-                "linked to Sales Invoice Item. Ensure each Item Tax Template " 
-                "includes one of the following categories: "
+            frappe.throw(_(
+                "Invalid or missing ZATCA VAT category in the Item Tax Template" 
+                "linked to Sales Invoice Item. Ensure each Item Tax Template" 
+                "includes one of the following categories:"
                 "'Standard', 'Zero Rated', 'Exempted', or 'Services outside scope of tax / Not subject to VAT'."
-            )
+            ))
 
         cbc_percent = ET.SubElement(cac_tax_category, "cbc:Percent")
         cbc_percent.text = f"{tax_percentage:.2f}"

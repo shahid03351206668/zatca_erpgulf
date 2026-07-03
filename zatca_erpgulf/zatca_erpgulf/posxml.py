@@ -350,7 +350,7 @@ def get_pih_for_company(pih_data, company_name):
         for entry in pih_data.get("data", []):
             if entry.get("company") == company_name:
                 return entry.get("pih")
-        frappe.throw(_("Error while retrieving  PIH of company for production:  "))
+        frappe.throw(_("Error while retrieving  PIH of company for production:"))
     except (KeyError, AttributeError, ValueError) as e:
         frappe.throw(
             _(f"Error in getting PIH of company '{company_name}' for production: {e}")
@@ -387,7 +387,11 @@ def additional_reference(invoice, company_abbr, pos_invoice_doc):
             zatca_settings = frappe.get_doc(
                 "ZATCA Multiple Setting", pos_invoice_doc.custom_zatca_pos_name
             )
-            pih = zatca_settings.custom_pih
+            if zatca_settings.custom__use_company_certificate__keys != 1:
+                pih = zatca_settings.custom_pih
+            else:
+                linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                pih = linked_doc.custom_pih
         else:
             pih = company_doc.custom_pih
 
@@ -518,7 +522,7 @@ def get_address(pos_invoice_doc, company_doc):
                 filters=[["name", "=", cost_center_doc.custom_zatca_branch_address]],
             )
             if not address_list:
-                frappe.throw("ZATCA requires a proper address. Please add")
+                frappe.throw(_("ZATCA requires a proper address. Please add"))
             if address_list:
                 return address_list[0]
 
@@ -554,7 +558,7 @@ def company_data(invoice, pos_invoice_doc):
 
         # If Company requires Cost Center but it's missing, throw an error
         if company_doc.custom_costcenter == 1 and not pos_invoice_doc.cost_center:
-            frappe.throw(_(" No Cost Center is set in the POS invoice.Give the feild"))
+            frappe.throw(_("No Cost Center is set in the POS invoice.Give the feild"))
 
         # Determine whether to fetch data from Cost Center or Company
         if company_doc.custom_costcenter == 1:
@@ -636,8 +640,8 @@ def customer_data(invoice, pos_invoice_doc):
             cac_party_2, "cac:PartyIdentification"
         )
         cbc_id_4 = ET.SubElement(cac_partyidentification_1, "cbc:ID")
-        cbc_id_4.set("schemeID", "CRN")
-        cbc_id_4.text = customer_doc.tax_id
+        cbc_id_4.set("schemeID", str(customer_doc.custom_buyer_id_type))
+        cbc_id_4.text = customer_doc.custom_buyer_id   
         # frappe.throw(f"Customer Tax ID set to: {cbc_ID_4.text}")
         if int(frappe.__version__.split(".", maxsplit=1)[0]) == 13:
             address = frappe.get_doc("Address", pos_invoice_doc.customer_address)
@@ -830,12 +834,12 @@ def add_document_level_discount_with_tax_template(invoice, pos_invoice_doc):
         elif vat_category == "Services outside scope of tax / Not subject to VAT":
             cbc_id.text = "O"
         else:
-            frappe.throw(
-                "Invalid or missing ZATCA VAT category in the Item Tax Template " 
-                "linked to Sales Invoice Item. Ensure each Item Tax Template " 
-                "includes one of the following categories: "
+            frappe.throw(_(
+                "Invalid or missing ZATCA VAT category in the Item Tax Template" 
+                "linked to Sales Invoice Item. Ensure each Item Tax Template" 
+                "includes one of the following categories:"
                 "'Standard', 'Zero Rated', 'Exempted', or 'Services outside scope of tax / Not subject to VAT'."
-            )
+            ))
 
         cbc_percent = ET.SubElement(cac_taxcategory, "cbc:Percent")
         cbc_percent.text = f"{tax_percentage:.2f}"
@@ -932,6 +936,19 @@ def get_exemption_reason_map():
         ),
     }
 
+def get_tax_wise_detail(pos_invoice_doc,single_item):
+    """getting item wise tax"""
+    if int(frappe.__version__.split(".", 1)[0]) == 16 and pos_invoice_doc.item_wise_tax_details:
+        tax_rate = float(f"{pos_invoice_doc.item_wise_tax_details[0].rate:.1f}")
+        tax_amount = pos_invoice_doc.item_wise_tax_details[0].amount
+
+        # build JSON exactly like v15
+        tax_json = json.dumps({
+            single_item.item_code: [tax_rate, float(tax_amount)]
+        })
+    else:
+        tax_json = pos_invoice_doc.taxes[0].item_wise_tax_detail
+    return tax_json 
 
 def get_tax_total_from_items(pos_invoice_doc):
     """function for get tax total from items"""
@@ -939,8 +956,9 @@ def get_tax_total_from_items(pos_invoice_doc):
         total_tax = 0
         for single_item in pos_invoice_doc.items:
             # _ = item_tax_amount
+            tax_json = get_tax_wise_detail(pos_invoice_doc,single_item)
             _item_tax_amount, tax_percent = get_tax_for_item(
-                pos_invoice_doc.taxes[0].item_wise_tax_detail, single_item.item_code
+                tax_json, single_item.item_code
             )
             total_tax = total_tax + (single_item.net_amount * (tax_percent / 100))
         return total_tax
@@ -1181,8 +1199,12 @@ def tax_data(invoice, pos_invoice_doc):
             cac_legalmonetarytotal, "cbc:AllowanceTotalAmount"
         )
         cbc_allowancetotalamount.set("currencyID", pos_invoice_doc.currency)
-        cbc_allowancetotalamount.text = str(
-            abs(pos_invoice_doc.get("discount_amount", 0.0))
+
+        cbc_allowancetotalamount.text = "{:.2f}".format(
+            round(
+                abs(pos_invoice_doc.get("discount_amount", 0.0)),
+                2,
+            )
         )
 
         cbc_payableamount = ET.SubElement(cac_legalmonetarytotal, "cbc:PayableAmount")

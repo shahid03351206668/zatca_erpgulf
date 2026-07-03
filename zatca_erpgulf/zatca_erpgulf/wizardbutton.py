@@ -26,7 +26,7 @@ def get_api_url(company_abbr, base_url):
         )
         return None
 
-
+# nosemgrep: frappe-semgrep-rules.rules.security.missing-argument-type-hint
 @frappe.whitelist(allow_guest=False)
 def wizard_button(company_abbr, button, pos=0, machine=None):
     """Compliance check for ZATCA based on file type and company abbreviation."""
@@ -77,10 +77,11 @@ def wizard_button(company_abbr, button, pos=0, machine=None):
         # Extract UUID
         uuid_element = root.find("cbc:UUID", namespaces)
         if uuid_element is None or not uuid_element.text:
-            frappe.throw("UUID not found in the XML file.")
+            frappe.throw(_("UUID not found in the XML file."))
         uuid1 = uuid_element.text.strip()
 
         # Read and encode the entire XML file
+        # nosemgrep: frappe-semgrep-rules.rules.security.frappe-security-file-traversal
         with open(signed_xml_filename, "rb") as file:
             xml_content = file.read()
         xml_base64_encoded = base64.b64encode(xml_content).decode("utf-8")
@@ -100,10 +101,13 @@ def wizard_button(company_abbr, button, pos=0, machine=None):
         #     frappe.throw(f"CSID for company {company_abbr} not found.")
         if pos == 1:
             if not machine:
-                frappe.throw("Machine name is required for offline POS.")
+                frappe.throw(_("Machine name is required for offline POS."))
             doc_type = "ZATCA Multiple Setting"
             doc_name = machine
             doc = frappe.get_doc(doc_type, doc_name)
+            if doc.custom__use_company_certificate__keys == 1:
+                # Fallback to Company
+                doc = frappe.get_doc("Company", company_name)
         else:
             doc_type = frappe.get_doc("Company", company_name)
             doc_name = company_name

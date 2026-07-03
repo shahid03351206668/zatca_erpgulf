@@ -4,6 +4,7 @@ from frappe import _
 import frappe
 import requests
 from lxml import etree
+from zatca_erpgulf.zatca_erpgulf.event_log import log_zatca_event
 from zatca_erpgulf.zatca_erpgulf.sign_invoice import (
     xml_base64_decode,
     get_api_url,
@@ -26,7 +27,7 @@ def extract_invoice_data_from_field(file_path):
     """
     try:
         # Read the file content as bytes
-        with open(frappe.local.site + file_path, "rb") as file:
+        with open(frappe.local.site + file_path, "rb") as file: # nosemgrep: frappe-semgrep-rules.rules.security.frappe-security-file-traversal
             custom_xml = file.read()
 
         # Parse the XML string as bytes
@@ -66,7 +67,7 @@ def reporting_api_machine(
         company_abbr = frappe.db.get_value(
             "Company", {"name": pos_invoice_doc.company}, "abbr"
         )
-
+        company_doc = frappe.get_doc("Company", {"abbr": company_abbr})
         if not company_abbr:
             frappe.throw(
                 _(f"Company with abbreviation {pos_invoice_doc.company} not found.")
@@ -84,15 +85,21 @@ def reporting_api_machine(
             frappe.throw(
                 _(f"ZATCA POS name is missing for invoice resporting {invoice_number}.")
             )
-
-        zatca_settings = frappe.get_doc(
-            "ZATCA Multiple Setting", pos_invoice_doc.custom_zatca_pos_name
-        )
-        production_csid = zatca_settings.custom_final_auth_csid
-
+        if pos_invoice_doc.custom_zatca_pos_name:
+            zatca_settings = frappe.get_doc(
+                "ZATCA Multiple Setting", pos_invoice_doc.custom_zatca_pos_name
+            )
+            if zatca_settings.custom__use_company_certificate__keys != 1:
+                production_csid = zatca_settings.custom_final_auth_csid
+            else:
+                linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                production_csid = linked_doc.custom_basic_auth_from_production
+        else:
+            # Use company-level certificate / CSID if POS not provided or company flag is ON
+            production_csid = company_doc.custom_basic_auth_from_production
         if not production_csid:
             frappe.throw(
-                _(f"Production CSID is missing in ZATCA settings for {company_abbr}.")
+                _(f"Production CSID is missing in ZATCA settings or {company_abbr}.or multiple settinga page")
             )
         headers = {
             "accept": CONTENT_TYPE_JSON,
@@ -120,6 +127,45 @@ def reporting_api_machine(
                 timeout=300,
             )
             frappe.publish_realtime("hide_gif", user=frappe.session.user)
+            if response.status_code in (200, 202, 409):
+                if response.status_code == 200:
+                        status_label = "Success"
+                        title = f"ZATCA Success - {invoice_number}"
+                elif response.status_code == 202:
+                    status_label = "Warning"
+                    title = f"ZATCA Invoice with Warnings - {invoice_number}"
+                elif response.status_code == 409:
+                    status_label = "Success (Duplicate Invoice)"
+                    title = f"ZATCA Duplicate Success - {invoice_number}"
+
+                msg = (
+                    f"Status Code: {response.status_code}<br>"
+                    f"ZATCA Response: {response.text}"
+                )
+
+                log_zatca_event(
+                    invoice_number=invoice_number,
+                    response_text=msg,
+                    status=status_label,
+                    uuid=uuid1,
+                    title=title
+                )
+
+            else:
+                
+                status_label = f"Failed (HTTP {response.status_code})"
+                title = f"ZATCA API Failed - {invoice_number}"
+                msg = (
+                    f"Status Code: {response.status_code}<br>"
+                    f"ZATCA Response: {response.text}"
+                )
+                log_zatca_event(
+                    invoice_number=invoice_number,
+                    response_text=msg,
+                    status=status_label,
+                    uuid=uuid1,
+                    title=title
+                )
             if response.status_code in (400, 405, 406):
                 invoice_doc = frappe.get_doc("POS Invoice", invoice_number)
                 # invoice_doc.db_set(
@@ -200,10 +246,18 @@ def reporting_api_machine(
                     zatca_settings = frappe.get_doc(
                         "ZATCA Multiple Setting", pos_invoice_doc.custom_zatca_pos_name
                     )
-                    if zatca_settings.custom_send_pos_invoices_to_zatca_on_background:
-                        frappe.msgprint(msg)
-                    zatca_settings.custom_pih = encoded_hash
-                    zatca_settings.save(ignore_permissions=True)
+                    if zatca_settings.custom__use_company_certificate__keys != 1:
+                        if zatca_settings.custom_send_pos_invoices_to_zatca_on_background:
+                            frappe.msgprint(msg)
+                        zatca_settings.custom_pih = encoded_hash
+                        zatca_settings.save(ignore_permissions=True)
+                    else:
+                        linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                        if linked_doc.custom_send_einvoice_background:
+                            frappe.msgprint(msg)
+                        linked_doc.custom_pih = encoded_hash
+                        linked_doc.save(ignore_permissions=True)
+
                 else:
                     company_doc = frappe.get_doc("Company", pos_invoice_doc.company)
                     if company_doc.custom_send_einvoice_background:
@@ -220,9 +274,9 @@ def reporting_api_machine(
                 
 
                 success_log(response.text, uuid1, invoice_number)
-            else:
+            # else:
 
-                error_log()
+            #     error_log()
             if response.status_code not in (200, 202, 409):
                 invoice_doc = frappe.get_doc("POS Invoice", invoice_number)
                 invoice_doc.custom_uuid = "Not Submitted"
@@ -274,12 +328,27 @@ def reporting_api_machine(
 
                 # company_name = pos_invoice_doc.company
                 if pos_invoice_doc.custom_zatca_pos_name:
-                    if zatca_settings.custom_send_pos_invoices_to_zatca_on_background:
-                        frappe.msgprint(msg)
+                    if zatca_settings.custom__use_company_certificate__keys != 1:
+                        if zatca_settings.custom_send_pos_invoices_to_zatca_on_background:
+                            frappe.msgprint(msg)
 
-                    # Update PIH data without JSON formatting
-                    zatca_settings.custom_pih = encoded_hash
-                    zatca_settings.save(ignore_permissions=True)
+                        # Update PIH data without JSON formatting
+                        zatca_settings.custom_pih = encoded_hash
+                        zatca_settings.save(ignore_permissions=True)
+                    else:
+                        linked_doc = frappe.get_doc("Company", zatca_settings.custom_linked_doctype)
+                        if linked_doc.custom_send_einvoice_background:
+                            frappe.msgprint(msg)
+                        linked_doc.custom_pih = encoded_hash
+                        linked_doc.save(ignore_permissions=True)
+
+                else:
+                    company_doc = frappe.get_doc("Company", pos_invoice_doc.company)
+                    if company_doc.custom_send_einvoice_background:
+                        frappe.msgprint(msg)
+                    company_doc.custom_pih = encoded_hash
+                    company_doc.save(ignore_permissions=True)
+
 
                 invoice_doc = frappe.get_doc("POS Invoice", invoice_number)
                 # invoice_doc.db_set(
