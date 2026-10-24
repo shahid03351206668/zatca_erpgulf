@@ -294,7 +294,7 @@ fixtures = [
     {"dt": "Dashboard", "filters": [["name", "=", "ZATCA Dashboard"]]},
     {
         "dt": "Workspace",
-        "filters": [["name", "=", "ZATCA ERPGulf"]],  # Use actual Workspace name here
+        "filters": [["name", "=", "ZATCA Phase 2"]],  # Use actual Workspace name here
     },
     {"dt": "Workspace", "filters": {"module": "Zatca Erpgulf"}},
     {"dt": "Custom Field", "filters": [["module", "=", "Zatca Erpgulf"]]},

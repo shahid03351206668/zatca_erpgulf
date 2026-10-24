@@ -5,12 +5,12 @@
    {
     "chart_name": "Monthly Invoices Reported to ZATCA",
     "label": "Monthly Invoices Reported to ZATCA",
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "charts",
     "parenttype": "Workspace"
    }
   ],
-  "content": "[{\"id\":\"AKT9aTatxp\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">ZATCA ERPGulf</span>\",\"col\":12}},{\"id\":\"toI42v5BQz\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"M9_4dICc9C\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"ZATCA Detailed Dashboard\",\"col\":3}},{\"id\":\"h-WpFvrVrz\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"FbzQ2ktrhH\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Cleared This Month\",\"col\":3}},{\"id\":\"fFwuBcwbN1\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Reported This Month\",\"col\":3}},{\"id\":\"j_G3qIB5WM\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Not Submitted This Month\",\"col\":3}},{\"id\":\"MGV-xKY9ji\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"503 Service Unavailable This \",\"col\":3}},{\"id\":\"W2sWtADeQt\",\"type\":\"chart\",\"data\":{\"chart_name\":\"Monthly Invoices Reported to ZATCA\",\"col\":12}},{\"id\":\"9ZhiRTDXf1\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"New Invoices\",\"col\":4}},{\"id\":\"J0fUqzkJsz\",\"type\":\"card\",\"data\":{\"card_name\":\"Shortcuts\",\"col\":4}},{\"id\":\"4YDRFLK7gC\",\"type\":\"card\",\"data\":{\"card_name\":\"Configurations\",\"col\":4}}]",
+  "content": "[{\"id\":\"AKT9aTatxp\",\"type\":\"header\",\"data\":{\"text\":\"<span class=\\\"h4\\\">ZATCA Phase 2</span>\",\"col\":12}},{\"id\":\"toI42v5BQz\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"M9_4dICc9C\",\"type\":\"shortcut\",\"data\":{\"shortcut_name\":\"ZATCA Detailed Dashboard\",\"col\":3}},{\"id\":\"h-WpFvrVrz\",\"type\":\"spacer\",\"data\":{\"col\":12}},{\"id\":\"FbzQ2ktrhH\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Cleared This Month\",\"col\":3}},{\"id\":\"fFwuBcwbN1\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Reported This Month\",\"col\":3}},{\"id\":\"j_G3qIB5WM\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"Not Submitted This Month\",\"col\":3}},{\"id\":\"MGV-xKY9ji\",\"type\":\"number_card\",\"data\":{\"number_card_name\":\"503 Service Unavailable This \",\"col\":3}},{\"id\":\"W2sWtADeQt\",\"type\":\"chart\",\"data\":{\"chart_name\":\"Monthly Invoices Reported to ZATCA\",\"col\":12}},{\"id\":\"9ZhiRTDXf1\",\"type\":\"quick_list\",\"data\":{\"quick_list_name\":\"New Invoices\",\"col\":4}},{\"id\":\"J0fUqzkJsz\",\"type\":\"card\",\"data\":{\"card_name\":\"Shortcuts\",\"col\":4}},{\"id\":\"4YDRFLK7gC\",\"type\":\"card\",\"data\":{\"card_name\":\"Configurations\",\"col\":4}}]",
   "custom_blocks": [],
   "docstatus": 0,
   "doctype": "Workspace",
@@ -19,7 +19,7 @@
   "icon": "",
   "indicator_color": "",
   "is_hidden": 0,
-  "label": "ZATCA ERPGulf",
+  "label": "ZATCA Phase 2",
   "links": [
    {
     "dependencies": null,
@@ -33,7 +33,7 @@
     "link_type": "DocType",
     "onboard": 0,
     "only_for": null,
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "links",
     "parenttype": "Workspace",
     "type": "Card Break"
@@ -50,7 +50,7 @@
     "link_type": "DocType",
     "onboard": 0,
     "only_for": null,
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "links",
     "parenttype": "Workspace",
     "type": "Link"
@@ -67,7 +67,7 @@
     "link_type": "Page",
     "onboard": 0,
     "only_for": null,
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "links",
     "parenttype": "Workspace",
     "type": "Link"
@@ -84,7 +84,7 @@
     "link_type": "DocType",
     "onboard": 0,
     "only_for": null,
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "links",
     "parenttype": "Workspace",
     "type": "Link"
@@ -101,7 +101,7 @@
     "link_type": "DocType",
     "onboard": 0,
     "only_for": null,
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "links",
     "parenttype": "Workspace",
     "type": "Link"
@@ -118,7 +118,7 @@
     "link_type": "DocType",
     "onboard": 0,
     "only_for": null,
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "links",
     "parenttype": "Workspace",
     "type": "Link"
@@ -135,7 +135,7 @@
     "link_type": "DocType",
     "onboard": 0,
     "only_for": null,
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "links",
     "parenttype": "Workspace",
     "type": "Card Break"
@@ -152,7 +152,7 @@
     "link_type": "DocType",
     "onboard": 0,
     "only_for": null,
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "links",
     "parenttype": "Workspace",
     "type": "Link"
@@ -169,7 +169,7 @@
     "link_type": "Report",
     "onboard": 0,
     "only_for": null,
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "links",
     "parenttype": "Workspace",
     "type": "Link"
@@ -186,7 +186,7 @@
     "link_type": "Report",
     "onboard": 0,
     "only_for": null,
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "links",
     "parenttype": "Workspace",
     "type": "Link"
@@ -203,7 +203,7 @@
     "link_type": "Report",
     "onboard": 0,
     "only_for": null,
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "links",
     "parenttype": "Workspace",
     "type": "Link"
@@ -211,33 +211,33 @@
   ],
   "modified": "2025-06-12 10:46:29.952575",
   "module": "Zatca Erpgulf",
-  "name": "ZATCA ERPGulf",
+  "name": "ZATCA Phase 2",
   "number_cards": [
    {
     "label": "Cleared This Month",
     "number_card_name": "Cleared This Month",
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "number_cards",
     "parenttype": "Workspace"
    },
    {
     "label": "Not Submitted This Month",
     "number_card_name": "Not Submitted This Month",
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "number_cards",
     "parenttype": "Workspace"
    },
    {
     "label": "Reported This Month",
     "number_card_name": "Reported This Month",
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "number_cards",
     "parenttype": "Workspace"
    },
    {
     "label": "503 Service Unavailable This ",
     "number_card_name": "503 Service Unavailable This Month",
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "number_cards",
     "parenttype": "Workspace"
    }
@@ -248,7 +248,7 @@
    {
     "document_type": "Sales Invoice",
     "label": "New Invoices",
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "quick_lists",
     "parenttype": "Workspace",
     "quick_list_filter": "[[\"Sales Invoice\",\"docstatus\",\"=\",\"1\",false],[\"Sales Invoice\",\"custom_zatca_status\",\"in\",[\"CLEARED\",\"REPORTED\"],false]]"
@@ -266,7 +266,7 @@
     "kanban_board": null,
     "label": "ZATCA Detailed Dashboard",
     "link_to": "ZATCA Dashboard",
-    "parent": "ZATCA ERPGulf",
+    "parent": "ZATCA Phase 2",
     "parentfield": "shortcuts",
     "parenttype": "Workspace",
     "restrict_to_domain": null,
@@ -275,6 +275,6 @@
     "url": null
    }
   ],
-  "title": "ZATCA ERPGulf"
+  "title": "ZATCA Phase 2"
  }
 ]
