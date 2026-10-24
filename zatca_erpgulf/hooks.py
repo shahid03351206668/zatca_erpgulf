@@ -222,13 +222,13 @@ from . import __version__ as app_version
 # ]
 
 # schedule for every 10 minutes every day 24 hours
-scheduler_events = {
-    "cron": {
-        "*/30 * * * *": [
-            "zatca_erpgulf.zatca_erpgulf.scheduler_event.submit_invoices_to_zatca_background_process"
-        ]
-    }
-}
+# scheduler_events = {
+#     "cron": {
+#         "*/30 * * * *": [
+#             "zatca_erpgulf.zatca_erpgulf.scheduler_event.submit_invoices_to_zatca_background_process"
+#         ]
+#     }
+# }
 
 
 # # schdule for every 10 minutes from 1 am to 7 am
