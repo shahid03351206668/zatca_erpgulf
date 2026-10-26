@@ -148,14 +148,30 @@ def build_filters_sql(filters, table_alias="si"):
 # -----------------------------
 # SALES VAT (SQL fetch + Python grouping to match ORM)
 # -----------------------------
+def _blank_totals():
+    return {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0}
+
+
+SALES_KEYS = ["Standard", "HealthcareEdu", "Zero Rated", "Exports", "Exempt"]
+PURCHASE_KEYS = ["Standard", "ImportsCustoms", "Zero Rated", "Exempt"]
+
+
+def _sum_breakdown(breakdown, keys):
+    totals = {k: _blank_totals() for k in keys}
+    for inv in breakdown.values():
+        for key, vals in inv["totals"].items():
+            for field, value in vals.items():
+                totals[key][field] += value
+    return totals
+
+
 def get_sales_vat_totals_sql(filters):
-    totals = {
-        "Standard": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
-        "HealthcareEdu": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
-        "Zero Rated": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
-        "Exports": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
-        "Exempt": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
-    }
+    return _sum_breakdown(get_sales_invoice_breakdown(filters), SALES_KEYS)
+
+
+def get_sales_invoice_breakdown(filters):
+    """Per-invoice contribution to every sales category; the main and detailed reports both build on it."""
+    result = {}
 
     where_clause = build_filters_sql(filters)
 
@@ -163,6 +179,8 @@ def get_sales_vat_totals_sql(filters):
     query = f"""
         SELECT
             si.name AS invoice,
+            si.posting_date AS posting_date,
+            si.customer_name AS party_name,
             si.is_return AS is_return,
             si.grand_total AS grand_total,
             si.net_total AS net_total,
@@ -192,6 +210,8 @@ def get_sales_vat_totals_sql(filters):
         inv = r.get("invoice")
         if inv not in invoices:
             invoices[inv] = {
+                "posting_date": r.get("posting_date"),
+                "party_name": r.get("party_name"),
                 "is_return": bool(r.get("is_return")),
                 "grand_total": r.get("grand_total") or 0,
                 "net_total": r.get("net_total") or 0,
@@ -213,7 +233,8 @@ def get_sales_vat_totals_sql(filters):
             })
 
     # Now apply your original ORM logic per-invoice
-    for inv_doc in invoices.values():
+    for inv_name, inv_doc in invoices.items():
+        totals = {k: _blank_totals() for k in SALES_KEYS}
         is_return = 1 if inv_doc["is_return"] else 0
         key_with_vat = "adjustment" if is_return else "amount"
         key_without_vat = "adjustment_without_vat" if is_return else "amount_without_vat"
@@ -276,25 +297,33 @@ def get_sales_vat_totals_sql(filters):
                     totals["Exempt"][key_with_vat] += item.get("amount") or 0
                     totals["Exempt"][key_without_vat] += item.get("net_amount") or 0
 
-    return totals
+        result[inv_name] = {
+            "posting_date": inv_doc["posting_date"],
+            "party_name": inv_doc["party_name"],
+            "totals": totals,
+        }
+
+    return result
 
 
 # -----------------------------
 # PURCHASE VAT (simple invoice-level like your ORM)
 # -----------------------------
 def get_purchase_vat_totals_sql(filters):
-    totals = {
-        "Standard": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
-        "ImportsCustoms": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
-        "Zero Rated": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
-        "Exempt": {"amount": 0, "adjustment": 0, "amount_without_vat": 0, "adjustment_without_vat": 0, "vat": 0},
-    }
+    return _sum_breakdown(get_purchase_invoice_breakdown(filters), PURCHASE_KEYS)
+
+
+def get_purchase_invoice_breakdown(filters):
+    """Per-invoice contribution to every purchase category."""
+    result = {}
 
     where_clause = build_filters_sql(filters, table_alias="pi")
 
     query = f"""
         SELECT
             pi.name AS invoice,
+            pi.posting_date AS posting_date,
+            pi.supplier_name AS party_name,
             pi.is_return AS is_return,
             pi.grand_total AS grand_total,
             pi.net_total AS net_total,
@@ -308,6 +337,7 @@ def get_purchase_vat_totals_sql(filters):
 
     rows = frappe.db.sql(query, filters, as_dict=True)
     for r in rows:
+        totals = {k: _blank_totals() for k in PURCHASE_KEYS}
         is_return = 1 if r.get("is_return") else 0
         key_with_vat = "adjustment" if is_return else "amount"
         key_without_vat = "adjustment_without_vat" if is_return else "amount_without_vat"
@@ -330,7 +360,13 @@ def get_purchase_vat_totals_sql(filters):
             totals["ImportsCustoms"][key_without_vat] += r.get("net_total") or 0
             totals["ImportsCustoms"]["vat"] += r.get("total_taxes_and_charges") or 0
 
-    return totals
+        result[r["invoice"]] = {
+            "posting_date": r.get("posting_date"),
+            "party_name": r.get("party_name"),
+            "totals": totals,
+        }
+
+    return result
 
 
 # -----------------------------
